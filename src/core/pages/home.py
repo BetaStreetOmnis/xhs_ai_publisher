@@ -1,8 +1,8 @@
 import sys
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QPixmap
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor, QPixmap
+from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QTextEdit, QVBoxLayout, QWidget, QMessageBox)
 
 from src.core.alert import TipWindow
@@ -333,7 +333,7 @@ class HomePage(QWidget):
         # 图片预览区域（包含左右按钮）
         image_preview_layout = QHBoxLayout()
         image_preview_layout.setSpacing(10)
-        image_preview_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_preview_layout.setAlignment(Qt.AlignCenter)
 
         # 左侧按钮
         self.prev_btn = QPushButton("<")
@@ -351,11 +351,11 @@ class HomePage(QWidget):
         """)
         image_container_layout = QVBoxLayout(image_container)
         image_container_layout.setContentsMargins(5, 5, 5, 5)
-        image_container_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        image_container_layout.setAlignment(Qt.AlignCenter)
 
         # 图片标签
         self.image_label = QLabel()
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setAlignment(Qt.AlignCenter)
         self.image_label.setMinimumSize(360, 360)
         self.image_label.setStyleSheet("border: none;")
         image_container_layout.addWidget(self.image_label)
@@ -372,7 +372,7 @@ class HomePage(QWidget):
 
         # 图片标题
         self.image_title = QLabel("暂无图片")
-        self.image_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_title.setAlignment(Qt.AlignCenter)
         self.image_title.setStyleSheet("""
             font-weight: bold;
             color: #2c3e50;
@@ -404,7 +404,7 @@ class HomePage(QWidget):
         preview_btn.clicked.connect(self.preview_post)
         preview_btn.setEnabled(False)
         preview_layout.addWidget(
-            preview_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+            preview_btn, alignment=Qt.AlignCenter)
 
         # 初始化时禁用按钮
         self.prev_btn.setEnabled(False)

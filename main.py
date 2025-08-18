@@ -2,9 +2,9 @@ import logging
 import os
 import signal
 import sys
-from PyQt6.QtCore import QTimer
-from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QMainWindow,
+from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QIcon
+from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QMainWindow,
                              QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from src.config.config import Config
@@ -19,9 +19,51 @@ from src.logger.logger import Logger
 log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
 
+def init_database_on_startup():
+    """应用启动时初始化数据库"""
+    try:
+        print("🚀 应用启动时检查和初始化数据库...")
+        
+        # 导入数据库管理器
+        from src.core.database_manager import database_manager
+        
+        # 确保数据库已准备就绪（包含自动修复功能）
+        success = database_manager.ensure_database_ready()
+        
+        if success:
+            print("✅ 数据库已准备就绪")
+            
+            # 显示数据库信息
+            db_info = database_manager.get_database_info()
+            print(f"📁 数据库路径: {db_info['db_path']}")
+            print(f"📊 数据库大小: {db_info['size']} 字节")
+            print(f"📋 数据表数量: {len(db_info['tables'])}")
+            
+            # 显示健康状态
+            health = db_info['health']
+            if health['healthy']:
+                print("💚 数据库健康状态: 良好")
+            else:
+                print("🟡 数据库健康状态: 存在问题")
+                for issue in health['issues']:
+                    print(f"  ⚠️ {issue}")
+        else:
+            print("❌ 数据库初始化失败，用户管理功能可能不可用")
+            print("💡 请尝试手动运行数据库修复或联系技术支持")
+            
+        return success
+    except Exception as e:
+        print(f"❌ 数据库初始化出错: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 class XiaohongshuUI(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        # 在创建UI之前先初始化数据库
+        init_database_on_startup()
 
         self.config = Config()
 

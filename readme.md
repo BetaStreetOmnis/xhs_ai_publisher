@@ -2,7 +2,7 @@
 
 <h1>🌟 小红书AI发布助手</h1>
 
-![Python Version](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white) ![License](https://img.shields.io/badge/License-Apache%202.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white) ![Version](https://img.shields.io/badge/Version-2.0.0-FF6B35?style=for-the-badge&logo=rocket&logoColor=white)
+![Python Version](https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white) ![License](https://img.shields.io/badge/License-Apache%202.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white) ![Version](https://img.shields.io/badge/Version-2.0.0-FF6B35?style=for-the-badge&logo=rocket&logoColor=white)
 
 <br/>
 
@@ -114,7 +114,7 @@
 
 | 组件 | 版本要求 | 说明 |
 |:---:|:---:|:---:|
-| 🐍 **Python** | `3.9+` | 推荐使用最新版本 |
+| 🐍 **Python** | `3.8+` | 推荐使用最新版本 |
 | 🌐 **Chrome** | `最新版` | 用于浏览器自动化 |
 | 💾 **内存** | `4GB+` | 推荐8GB以上 |
 | 💿 **磁盘** | `2GB+` | 用于存储依赖和数据 |
@@ -123,59 +123,115 @@
 
 ### 🚀 安装方式
 
+#### 🎯 一键安装（推荐）
+
+根据您的操作系统选择对应的安装脚本：
+
+<div align="center">
+
+| 操作系统 | 安装脚本 | 启动脚本 |
+|:---:|:---:|:---:|
+| 🍎 **macOS** | `./install_mac.sh` | `./start_mac.sh` |
+| 🐧 **Linux** | `./install_linux.sh` | `./start_linux.sh` |
+| 💻 **Windows** | `install_windows.bat` | `start_windows.bat` |
+
+</div>
+
 <details>
-<summary>📥 <strong>方式一：源码安装（推荐开发者）</strong></summary>
+<summary>🍎 <strong>macOS 安装</strong></summary>
 
 ```bash
 # 1️⃣ 克隆项目
 git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
 cd xhs_ai_publisher
 
-# 2️⃣ 创建虚拟环境（推荐）
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# 或
-venv\Scripts\activate     # Windows
+# 2️⃣ 运行安装脚本
+./install_mac.sh
 
-# 3️⃣ 安装依赖
-pip install -r requirements.txt
-
-# 4️⃣ 安装浏览器驱动
-playwright install chromium
-
-# 5️⃣ 初始化数据库
-python src/core/database_init.py init
-
-# 6️⃣ 启动程序
-python main.py
+# 3️⃣ 启动程序
+./start_mac.sh
 ```
+
+**特性：**
+- ✅ 自动检测和安装Python环境
+- ✅ 自动安装Homebrew（如需要）
+- ✅ 支持Apple Silicon和Intel芯片
+- ✅ 完整的依赖管理和虚拟环境配置
 
 </details>
 
 <details>
-<summary>📦 <strong>方式二：可执行程序（推荐普通用户）</strong></summary>
+<summary>🐧 <strong>Linux 安装</strong></summary>
 
-<div align="center">
+```bash
+# 1️⃣ 克隆项目
+git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
+cd xhs_ai_publisher
 
-### 🎯 一键下载，即开即用
+# 2️⃣ 运行安装脚本
+./install_linux.sh
 
-<a href="https://pan.baidu.com/s/1rIQ-ZgyHYN_ncVXlery4yQ">
-<img src="https://img.shields.io/badge/📥_百度网盘下载-4285F4?style=for-the-badge&logo=googledrive&logoColor=white" alt="百度网盘下载"/>
-</a>
+# 3️⃣ 启动程序
+./start_linux.sh
+```
 
-**提取码:** `iqiy`
+**支持的发行版：**
+- ✅ Ubuntu/Debian 系列
+- ✅ RHEL/CentOS/Rocky Linux
+- ✅ Fedora
+- ✅ openSUSE/SLES
+- ✅ Arch Linux/Manjaro
 
-</div>
+</details>
 
-**使用步骤:**
-1. 📥 下载并解压压缩包
-2. 🚀 双击运行 `easy_ui.exe`
-3. 🎯 按照界面提示操作即可
+<details>
+<summary>💻 <strong>Windows 安装</strong></summary>
 
-**注意事项:**
-- ✅ 仅支持 Windows 10/11 系统
-- ⏱️ 首次运行需要等待加载（约30-60秒）
-- 🛡️ 如遇杀毒软件报警，请添加信任
+```cmd
+# 1️⃣ 克隆项目
+git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
+cd xhs_ai_publisher
+
+# 2️⃣ 运行安装脚本
+install_windows.bat
+
+# 3️⃣ 启动程序
+start_windows.bat
+```
+
+**系统要求：**
+- ✅ Windows 10/11
+- ✅ 自动安装Python（如需要）
+- ✅ 完整的依赖管理
+
+</details>
+
+<details>
+<summary>📥 <strong>手动安装（高级用户）</strong></summary>
+
+```bash
+# 1️⃣ 克隆项目
+git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
+cd xhs_ai_publisher
+
+# 2️⃣ 创建虚拟环境
+python -m venv venv
+
+# 3️⃣ 激活虚拟环境
+# Linux/Mac:
+source venv/bin/activate
+# Windows:
+venv\Scripts\activate
+
+# 4️⃣ 安装依赖
+pip install -r requirements.txt
+
+# 5️⃣ 初始化数据库（可选）
+python init_db.py
+
+# 6️⃣ 启动程序
+python main.py
+```
 
 </details>
 

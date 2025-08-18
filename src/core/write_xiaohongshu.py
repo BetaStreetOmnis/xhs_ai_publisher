@@ -6,9 +6,9 @@ import os
 import sys
 import logging
 import asyncio
-from PyQt6.QtWidgets import QInputDialog, QLineEdit
-from PyQt6.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
-from PyQt6.QtWidgets import QApplication
+from PyQt5.QtWidgets import QInputDialog, QLineEdit
+from PyQt5.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
+from PyQt5.QtWidgets import QApplication
 log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
 

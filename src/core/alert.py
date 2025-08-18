@@ -1,11 +1,11 @@
 import sys
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel,  QPushButton, QFrame,
                              QProgressBar, QGraphicsView, QGraphicsScene,
                              QGraphicsDropShadowEffect)
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QPainter, QPen, QBrush
-from PyQt6.QtCore import QEvent
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor, QPainter, QPen, QBrush
+from PyQt5.QtCore import QEvent
 
 
 class LoadingWindow(QWidget):
@@ -86,7 +86,7 @@ class LoadingWindow(QWidget):
             font-weight: bold;
             color: #2c3e50;
         """)
-        loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        loading_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(loading_label)
 
         # 进度条
@@ -108,7 +108,7 @@ class LoadingWindow(QWidget):
             font-size: 12pt;
             color: #666;
         """)
-        tip_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tip_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(tip_label)
 
         # 设置初始透明度

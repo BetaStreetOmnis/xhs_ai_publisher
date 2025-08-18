@@ -5,13 +5,14 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
+from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton,
                              QScrollArea, QTextEdit, QVBoxLayout, QWidget,
-                             QScrollArea, QGridLayout, QFileDialog)
-from PyQt6.QtCore import Qt, QByteArray, QThread, pyqtSignal
-from PyQt6.QtGui import QPixmap
+                             QScrollArea, QGridLayout, QFileDialog, QTabWidget)
+from PyQt5.QtCore import Qt, QByteArray, QThread, pyqtSignal
+from PyQt5.QtGui import QPixmap
 
 from src.core.alert import TipWindow
+from .database_management import DatabaseManagementPage
 
 
 class VideoProcessThread(QThread):
@@ -146,6 +147,52 @@ class ToolsPage(QWidget):
     def setup_ui(self):
         """设置UI"""
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # 创建选项卡容器
+        tab_widget = QTabWidget()
+        tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border: none;
+                background-color: #f8f9fa;
+            }
+            QTabWidget::tab-bar {
+                alignment: center;
+            }
+            QTabBar::tab {
+                background-color: #e9ecef;
+                color: #495057;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected {
+                background-color: white;
+                color: #2c3e50;
+            }
+            QTabBar::tab:hover {
+                background-color: #dee2e6;
+            }
+        """)
+
+        # 添加视频工具选项卡
+        video_tools_widget = self.create_video_tools_widget()
+        tab_widget.addTab(video_tools_widget, "🎬 视频工具")
+
+        # 添加数据库管理选项卡
+        database_widget = DatabaseManagementPage(self)
+        tab_widget.addTab(database_widget, "🛠️ 数据库管理")
+
+        # 将选项卡添加到主布局
+        layout.addWidget(tab_widget)
+
+    def create_video_tools_widget(self):
+        """创建视频工具界面"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
@@ -354,6 +401,8 @@ class ToolsPage(QWidget):
 
         # 将滚动区域添加到工具箱页面
         layout.addWidget(scroll_area)
+        
+        return widget
 
     def process_video(self):
         """处理视频链接"""
@@ -526,15 +575,15 @@ class ToolsPage(QWidget):
                                 background: transparent;
                             }
                         """)
-                        scaled_pixmap = pixmap.scaled(150, 200, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                        scaled_pixmap = pixmap.scaled(150, 200, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                         image_label.setPixmap(scaled_pixmap)
-                        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                        image_label.setAlignment(Qt.AlignCenter)
                         card_layout.addWidget(image_label)
 
                         # 添加下载按钮
                         download_link = QPushButton("下载图片")
                         download_link.setFixedHeight(20)
-                        download_link.setCursor(Qt.CursorShape.PointingHandCursor)
+                        download_link.setCursor(Qt.PointingHandCursor)
                         download_link.setStyleSheet("""
                             QPushButton {
                                 color: #4a90e2;
@@ -616,7 +665,7 @@ class ToolsPage(QWidget):
             for i, (label, value) in enumerate(stats):
                 stat_widget = QWidget()
                 stat_layout = QHBoxLayout(stat_widget)
-                stat_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                stat_layout.setAlignment(Qt.AlignCenter)
 
                 label_label = QLabel(f"{label} {value}")
                 label_label.setStyleSheet("color: #666666; font-size: 12px;")

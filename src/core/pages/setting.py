@@ -1,6 +1,6 @@
 import sys
 
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from src.config.constants import VERSION
 

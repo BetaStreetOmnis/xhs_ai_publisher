@@ -1,7 +1,7 @@
 import json
 import traceback
 import time
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 import requests
 from requests.exceptions import RequestException, Timeout, ConnectionError
 

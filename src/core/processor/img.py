@@ -1,11 +1,11 @@
 import io
 import time
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 
 import os
 import requests
 
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage
 
 
 from PIL import Image

@@ -52,18 +52,31 @@ if !errorlevel! neq 0 (
     exit /b 1
 )
 
+:: 获取Python版本输出
 for /f "tokens=2" %%i in ('%cmd% --version 2^>^&1') do (
-    set "version=%%i"
-    for /f "tokens=1,2 delims=." %%a in ("!version!") do (
-        set "major=%%a"
-        set "minor=%%b"
-        set /a "version_num=!major!*10+!minor!"
-        if !version_num! geq 38 (
-            set "PYTHON_VERSION=!major!.!minor!"
-            exit /b 0
-        )
+    set "version_raw=%%i"
+)
+
+:: 解析版本号 (处理 3.13.x 格式)
+for /f "tokens=1,2 delims=." %%a in ("!version_raw!") do (
+    set "major=%%a"
+    set "minor=%%b"
+    
+    :: 计算版本号 (major*10+minor)
+    set /a "version_num=!major!*10+!minor!" 2>nul
+    if !version_num! geq 38 (
+        set "PYTHON_VERSION=!major!.!minor!"
+        exit /b 0
     )
 )
+
+:: 如果解析失败，尝试更宽松的匹配
+echo !version_raw! | findstr /r "^3\.[8-9]\|^3\.1[0-9]" >nul
+if !errorlevel! equ 0 (
+    set "PYTHON_VERSION=!version_raw!"
+    exit /b 0
+)
+
 exit /b 1
 
 :: 检测Python环境

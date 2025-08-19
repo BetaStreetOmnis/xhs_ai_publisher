@@ -131,9 +131,9 @@
 
 | 操作系统 | 安装脚本 | 启动脚本 |
 |:---:|:---:|:---:|
-| 🍎 **macOS** | `./install_mac.sh` | `./start_mac.sh` |
-| 🐧 **Linux** | `./install_linux.sh` | `./start_linux.sh` |
-| 💻 **Windows** | `install_windows.bat` | `start_windows.bat` |
+| 🍎 **macOS** | `./install_mac.sh` | `./启动程序.sh` |
+| 🐧 **Linux** | `./install.sh` | `./启动程序.sh` |
+| 💻 **Windows** | `install.bat` | `启动程序.bat` |
 
 </div>
 
@@ -149,7 +149,7 @@ cd xhs_ai_publisher
 ./install_mac.sh
 
 # 3️⃣ 启动程序
-./start_mac.sh
+./启动程序.sh
 ```
 
 **特性：**
@@ -169,10 +169,10 @@ git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
 cd xhs_ai_publisher
 
 # 2️⃣ 运行安装脚本
-./install_linux.sh
+./install.sh
 
 # 3️⃣ 启动程序
-./start_linux.sh
+./启动程序.sh
 ```
 
 **支持的发行版：**
@@ -193,10 +193,10 @@ git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
 cd xhs_ai_publisher
 
 # 2️⃣ 运行安装脚本
-install_windows.bat
+install.bat
 
 # 3️⃣ 启动程序
-start_windows.bat
+启动程序.bat
 ```
 
 **系统要求：**

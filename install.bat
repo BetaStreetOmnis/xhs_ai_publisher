@@ -244,6 +244,21 @@ exit /b !errorlevel!
 :main
 call :print_banner
 
+:: 检查项目文件
+if not exist "main.py" (
+    echo %RED%❌ 请在项目根目录中运行此脚本%END%
+    echo 项目根目录应包含 main.py 和 deploy.py 文件
+    pause
+    exit /b 1
+)
+
+if not exist "deploy.py" (
+    echo %RED%❌ 请在项目根目录中运行此脚本%END%
+    echo 项目根目录应包含 main.py 和 deploy.py 文件
+    pause
+    exit /b 1
+)
+
 :: 检测Python环境
 call :detect_python
 if !errorlevel! equ 0 (
@@ -281,24 +296,3 @@ if !errorlevel! equ 0 (
 echo.
 pause
 goto :eof
-
-:: 错误处理
-:error
-echo %RED%❌ 安装过程中出现错误%END%
-pause
-exit /b 1
-
-:: 确保在项目目录中运行
-if not exist "main.py" (
-    echo %RED%❌ 请在项目根目录中运行此脚本%END%
-    echo 项目根目录应包含 main.py 和 deploy.py 文件
-    pause
-    exit /b 1
-)
-
-if not exist "deploy.py" (
-    echo %RED%❌ 请在项目根目录中运行此脚本%END%
-    echo 项目根目录应包含 main.py 和 deploy.py 文件
-    pause
-    exit /b 1
-)

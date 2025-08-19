@@ -1,9 +1,9 @@
 @echo off
-chcp 65001 >nul
+chcp 65001 >nul 2>&1
 setlocal enabledelayedexpansion
 
-:: 小红书AI发布助手 - 一键安装脚本 (Windows)
-:: 自动检测和安装Python环境，无需用户预先安装Python
+REM 小红书AI发布助手 - 一键安装脚本 (Windows)
+REM 自动检测和安装Python环境，无需用户预先安装Python
 
 :: 颜色定义 (Windows 10+ 支持ANSI颜色)
 set "RED=[91m"
@@ -31,13 +31,13 @@ goto :main
 :: 打印横幅
 :print_banner
 echo %CYAN%%BOLD%
-echo ╔══════════════════════════════════════════════════════════╗
-echo ║              🌟 小红书AI发布助手 - 一键安装             ║
-echo ║                                                          ║
-echo ║  🔍 自动检测Python环境                                   ║
-echo ║  📦 自动安装所需依赖                                     ║
-echo ║  🚀 一键完成所有配置                                     ║
-echo ╚══════════════════════════════════════════════════════════╝
+echo ╔═══════════════════════════════════════════════════════════╗
+echo ║             小红书AI发布助手 - 一键安装                  ║
+echo ║                                                           ║
+echo ║  自动检测Python环境                                       ║
+echo ║  自动安装所需依赖                                         ║
+echo ║  一键完成所有配置                                         ║
+echo ╚═══════════════════════════════════════════════════════════╝
 echo %END%
 echo.
 echo %GREEN%✅ 检测到 Windows 系统%END%

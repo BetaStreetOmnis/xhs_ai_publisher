@@ -1,4 +1,6 @@
 PyQt5>=5.15.0
+PyQt5-Qt5>=5.15.2
+PyQt5-sip>=12.8.0
 SQLAlchemy>=2.0.23
 playwright>=1.40.0
 requests>=2.31.0

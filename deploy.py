@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 小红书AI发布助手 - 一键部署脚本
 支持 Windows、macOS、Linux 系统
@@ -11,6 +12,14 @@ import subprocess
 import platform
 import shutil
 from pathlib import Path
+
+# 设置Windows下的UTF-8输出
+if platform.system() == "Windows":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    # 设置控制台编码
+    os.system('chcp 65001 >nul')
 
 class Colors:
     """终端颜色定义"""
@@ -86,8 +95,14 @@ class DeploymentManager:
         print(f"{Colors.BLUE}📦 创建虚拟环境...{Colors.END}")
         
         if self.venv_path.exists():
-            print(f"{Colors.YELLOW}⚠️  虚拟环境已存在，是否重新创建？{Colors.END}")
-            choice = input(f"请输入 y/n (默认n): ").lower().strip()
+            print(f"{Colors.YELLOW}⚠️  虚拟环境已存在{Colors.END}")
+            # 在非交互环境下直接使用现有虚拟环境
+            try:
+                choice = input(f"请输入 y/n (默认n): ").lower().strip()
+            except EOFError:
+                choice = 'n'
+                print("n (自动选择)")
+            
             if choice == 'y':
                 print(f"{Colors.BLUE}🗑️  删除现有虚拟环境...{Colors.END}")
                 shutil.rmtree(self.venv_path)
@@ -372,7 +387,12 @@ python main.py
         
         # 询问是否立即启动
         print(f"{Colors.BLUE}是否现在启动程序？{Colors.END}")
-        choice = input(f"请输入 y/n (默认y): ").lower().strip()
+        try:
+            choice = input(f"请输入 y/n (默认y): ").lower().strip()
+        except EOFError:
+            choice = 'n'
+            print("n (自动选择，在非交互环境下不启动)")
+            
         if choice != 'n':
             print(f"{Colors.BLUE}🚀 正在启动程序...{Colors.END}")
             try:
@@ -382,6 +402,8 @@ python main.py
                 print(f"\n{Colors.YELLOW}程序已停止{Colors.END}")
             except Exception as e:
                 print(f"{Colors.RED}启动失败: {e}{Colors.END}")
+        else:
+            print(f"{Colors.GREEN}✅ 部署完成，可运行 启动程序.bat 启动应用{Colors.END}")
         
         return True
 

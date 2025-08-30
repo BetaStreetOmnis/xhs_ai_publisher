@@ -13,6 +13,8 @@ from src.core.pages.home import HomePage
 from src.core.pages.setting import SettingsPage
 from src.core.pages.tools import ToolsPage
 from src.core.pages.user_management import UserManagementPage
+from src.core.pages.browser_environment_page import BrowserEnvironmentPage
+from src.core.pages.cover_template_page import CoverTemplatePage
 from src.logger.logger import Logger
 
 # 设置日志文件路径
@@ -152,7 +154,7 @@ class XiaohongshuUI(QMainWindow):
             }}
         """)
 
-        self.setMinimumSize(1000, 600)
+        self.setMinimumSize(1200, 700)  # 增大主窗口最小尺寸以适应更宽的表格
         self.center()
 
         # 创建主窗口部件
@@ -182,23 +184,35 @@ class XiaohongshuUI(QMainWindow):
         user_btn.setCheckable(True)
         user_btn.clicked.connect(lambda: self.switch_page(1))
 
+        # 添加浏览器环境按钮
+        browser_env_btn = QPushButton("🌐")
+        browser_env_btn.setCheckable(True)
+        browser_env_btn.clicked.connect(lambda: self.switch_page(2))
+
+        # 添加封面模板按钮
+        template_btn = QPushButton("🎨")
+        template_btn.setCheckable(True)
+        template_btn.clicked.connect(lambda: self.switch_page(3))
+
         # 添加工具箱按钮
         tools_btn = QPushButton("🧰")
         tools_btn.setCheckable(True)
-        tools_btn.clicked.connect(lambda: self.switch_page(2))
+        tools_btn.clicked.connect(lambda: self.switch_page(4))
 
         settings_btn = QPushButton("⚙️")
         settings_btn.setCheckable(True)
-        settings_btn.clicked.connect(lambda: self.switch_page(3))
+        settings_btn.clicked.connect(lambda: self.switch_page(5))
 
         sidebar_layout.addWidget(home_btn)
         sidebar_layout.addWidget(user_btn)
+        sidebar_layout.addWidget(browser_env_btn)
+        sidebar_layout.addWidget(template_btn)
         sidebar_layout.addWidget(tools_btn)
         sidebar_layout.addWidget(settings_btn)
         sidebar_layout.addStretch()
 
         # 存储按钮引用以便切换状态
-        self.sidebar_buttons = [home_btn, user_btn, tools_btn, settings_btn]
+        self.sidebar_buttons = [home_btn, user_btn, browser_env_btn, template_btn, tools_btn, settings_btn]
 
         # 添加侧边栏到主布局
         main_layout.addWidget(sidebar)
@@ -210,17 +224,24 @@ class XiaohongshuUI(QMainWindow):
         # 创建并添加页面
         self.home_page = HomePage(self)
         self.user_management_page = UserManagementPage(self)
+        self.browser_environment_page = BrowserEnvironmentPage(self)
+        self.cover_template_page = CoverTemplatePage(self)
         self.tools_page = ToolsPage(self)
         self.settings_page = SettingsPage(self)
 
         # 将页面添加到堆叠窗口
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.user_management_page)
+        self.stack.addWidget(self.browser_environment_page)
+        self.stack.addWidget(self.cover_template_page)
         self.stack.addWidget(self.tools_page)
         self.stack.addWidget(self.settings_page)
 
         # 连接用户管理页面的信号
         self.user_management_page.user_switched.connect(self.on_user_switched)
+        
+        # 连接封面模板页面的信号
+        self.cover_template_page.template_applied.connect(self.on_cover_generated)
 
         # 创建浏览器线程
         self.browser_thread = BrowserThread()
@@ -284,6 +305,18 @@ class XiaohongshuUI(QMainWindow):
             # 比如重新加载用户相关的配置、重置浏览器状态等
         except Exception as e:
             self.logger.error(f"处理用户切换失败: {str(e)}")
+
+    def on_cover_generated(self, cover_path):
+        """处理封面生成完成事件"""
+        try:
+            self.logger.info(f"封面生成完成: {cover_path}")
+            # 切换到首页并应用生成的封面
+            self.switch_page(0)  # 切换到首页
+            # 通知首页应用新的封面
+            if hasattr(self.home_page, 'apply_generated_cover'):
+                self.home_page.apply_generated_cover(cover_path)
+        except Exception as e:
+            self.logger.error(f"应用生成的封面失败: {str(e)}")
 
     def closeEvent(self, event):
         print("关闭应用")

@@ -5,6 +5,7 @@ from PyQt5.QtGui import QColor, QPixmap
 from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QTextEdit, QVBoxLayout, QWidget, QMessageBox)
 
+import os
 from src.core.alert import TipWindow
 from src.core.processor.content import ContentGeneratorThread
 from src.core.processor.img import ImageProcessorThread
@@ -272,6 +273,11 @@ class HomePage(QWidget):
         self.generate_btn = QPushButton("✨ 生成内容")
         self.generate_btn.clicked.connect(self.generate_content)
         button_layout.addWidget(self.generate_btn)
+        
+        # 添加封面模板按钮
+        template_btn = QPushButton("🎨 封面模板")
+        template_btn.clicked.connect(self.open_template_library)
+        button_layout.addWidget(template_btn)
 
         input_container_layout.addLayout(button_layout)
         input_layout.addWidget(input_container)
@@ -738,3 +744,73 @@ class HomePage(QWidget):
             self.parent.config.update_phone_config(new_phone)
         except Exception as e:
             self.parent.logger.error(f"更新手机号配置失败: {str(e)}")
+
+    def apply_generated_cover(self, cover_path):
+        """应用生成的封面图片"""
+        try:
+            if os.path.exists(cover_path):
+                # 清空现有图片列表，将新封面设为第一张图片
+                self.images = [cover_path]
+                self.image_list = []
+                self.current_image_index = 0
+                
+                # 创建预览图片
+                from PIL import Image
+                import io
+                from PyQt5.QtGui import QImage
+                
+                # 处理图片预览
+                image = Image.open(cover_path)
+                max_size = 360
+                width, height = image.size
+                scale = min(max_size/width, max_size/height)
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+                
+                # 缩放图片
+                image = image.resize((new_width, new_height), Image.LANCZOS)
+                
+                # 创建白色背景
+                background = Image.new('RGB', (max_size, max_size), 'white')
+                offset = ((max_size - new_width) // 2, (max_size - new_height) // 2)
+                background.paste(image, offset)
+                
+                # 转换为QPixmap
+                img_bytes = io.BytesIO()
+                background.save(img_bytes, format='PNG')
+                img_data = img_bytes.getvalue()
+                
+                qimage = QImage.fromData(img_data)
+                pixmap = QPixmap.fromImage(qimage)
+                
+                if not pixmap.isNull():
+                    self.image_list = [{'pixmap': pixmap, 'title': '模板封面'}]
+                    # 更新预览显示
+                    self.update_image_display()
+                    
+                    # 显示提示
+                    TipWindow(self.parent, "✅ 模板封面已应用").show()
+                else:
+                    TipWindow(self.parent, "❌ 封面图片加载失败").show()
+            else:
+                TipWindow(self.parent, "❌ 封面文件不存在").show()
+                
+        except Exception as e:
+            self.parent.logger.error(f"应用生成封面失败: {str(e)}")
+            TipWindow(self.parent, f"❌ 应用封面失败: {str(e)}").show()
+
+    def open_template_library(self):
+        """打开封面模板库"""
+        try:
+            # 切换到封面模板页面
+            self.parent.switch_page(3)  # 封面模板页面的索引
+            
+            # 如果有生成的标题，自动填入模板页面
+            if hasattr(self, 'title_output') and self.title_output.toPlainText().strip():
+                title_text = self.title_output.toPlainText().strip()
+                if hasattr(self.parent, 'cover_template_page'):
+                    self.parent.cover_template_page.set_title_text(title_text)
+            
+        except Exception as e:
+            self.parent.logger.error(f"打开模板库失败: {str(e)}")
+            TipWindow(self.parent, f"❌ 打开模板库失败: {str(e)}").show()

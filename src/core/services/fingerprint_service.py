@@ -302,6 +302,26 @@ class FingerprintService:
         
         return created_fingerprints
     
+    def get_all_fingerprints(self, user_id: int = None, active_only: bool = True) -> List[BrowserFingerprint]:
+        """获取所有浏览器指纹配置（兼容旧接口）"""
+        if user_id is None:
+            # 如果没有指定用户，返回所有配置
+            session = self.db_manager.get_session_direct()
+            try:
+                query = session.query(BrowserFingerprint)
+                if active_only:
+                    query = query.filter(BrowserFingerprint.is_active == True)
+                return query.order_by(BrowserFingerprint.created_at.desc()).all()
+            finally:
+                session.close()
+        else:
+            return self.get_user_fingerprints(user_id, active_only)
+    
+    def get_all(self, user_id: int = None):
+        """兼容旧接口的方法"""
+        fingerprints = self.get_all_fingerprints(user_id)
+        return [fingerprint.to_dict() for fingerprint in fingerprints]
+    
     def get_fingerprint_stats(self, user_id: int) -> Dict[str, Any]:
         """获取用户浏览器指纹配置统计信息"""
         session = self.db_manager.get_session_direct()

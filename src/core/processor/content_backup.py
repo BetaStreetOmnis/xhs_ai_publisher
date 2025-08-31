@@ -111,11 +111,11 @@ class BackupContentGenerator(QThread):
         width = random.randint(400, 800)
         height = random.randint(400, 600)
         
-        # 可以使用多种占位图服务
+        # 使用更可靠的占位图服务（移除有SSL问题的via.placeholder.com）
         placeholder_services = [
             f"https://picsum.photos/{width}/{height}?random={random.randint(1, 1000)}",
-            f"https://via.placeholder.com/{width}x{height}/FF6B6B/FFFFFF?text={title}",
-            f"https://dummyimage.com/{width}x{height}/4ECDC4/FFFFFF&text={title}"
+            f"https://dummyimage.com/{width}x{height}/4ECDC4/FFFFFF&text={title}",
+            f"https://placehold.co/{width}x{height}/png?text={title}"
         ]
         
         return random.choice(placeholder_services) 

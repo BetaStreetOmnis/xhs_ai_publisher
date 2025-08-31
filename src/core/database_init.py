@@ -13,7 +13,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 sys.path.insert(0, project_root)
 
 from src.config.database import DatabaseManager
-from src.core.models import Base, User, ProxyConfig, BrowserFingerprint, ContentTemplate, PublishHistory, ScheduledTask
+from src.core.models import Base, User, ProxyConfig, BrowserFingerprint, BrowserEnvironment, ContentTemplate, PublishHistory, ScheduledTask
 from src.core.services.user_service import user_service
 from src.core.services.fingerprint_service import fingerprint_service
 

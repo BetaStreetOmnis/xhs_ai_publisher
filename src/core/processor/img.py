@@ -70,7 +70,8 @@ class ImageProcessorThread(QThread):
         retries = 3
         while retries > 0:
             try:
-                response = requests.get(url)
+                # 添加SSL验证跳过和更长的超时时间
+                response = requests.get(url, verify=False, timeout=30)
                 if response.status_code == 200:
                     # 保存图片
                     img_path = os.path.join(self.img_dir, f'{title}.jpg')

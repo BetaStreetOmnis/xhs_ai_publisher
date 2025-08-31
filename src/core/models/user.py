@@ -30,6 +30,7 @@ class User(Base):
     # 关联关系
     proxy_configs = relationship("ProxyConfig", back_populates="user", cascade="all, delete-orphan")
     browser_fingerprints = relationship("BrowserFingerprint", back_populates="user", cascade="all, delete-orphan")
+    browser_environments = relationship("BrowserEnvironment", back_populates="user", cascade="all, delete-orphan")
     content_templates = relationship("ContentTemplate", back_populates="user", cascade="all, delete-orphan")
     publish_history = relationship("PublishHistory", back_populates="user", cascade="all, delete-orphan")
     scheduled_tasks = relationship("ScheduledTask", back_populates="user", cascade="all, delete-orphan")

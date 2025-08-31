@@ -12,7 +12,6 @@ from src.core.browser import BrowserThread
 from src.core.pages.home import HomePage
 from src.core.pages.setting import SettingsPage
 from src.core.pages.tools import ToolsPage
-from src.core.pages.user_management import UserManagementPage
 from src.core.pages.browser_environment_page import BrowserEnvironmentPage
 from src.core.pages.cover_template_page import CoverTemplatePage
 from src.logger.logger import Logger
@@ -50,7 +49,7 @@ def init_database_on_startup():
                 for issue in health['issues']:
                     print(f"  ⚠️ {issue}")
         else:
-            print("❌ 数据库初始化失败，用户管理功能可能不可用")
+            print("❌ 数据库初始化失败")
             print("💡 请尝试手动运行数据库修复或联系技术支持")
             
         return success
@@ -179,32 +178,27 @@ class XiaohongshuUI(QMainWindow):
         home_btn.setChecked(True)
         home_btn.clicked.connect(lambda: self.switch_page(0))
 
-        # 添加用户管理按钮
-        user_btn = QPushButton("👤")
-        user_btn.setCheckable(True)
-        user_btn.clicked.connect(lambda: self.switch_page(1))
 
         # 添加浏览器环境按钮
         browser_env_btn = QPushButton("🌐")
         browser_env_btn.setCheckable(True)
-        browser_env_btn.clicked.connect(lambda: self.switch_page(2))
+        browser_env_btn.clicked.connect(lambda: self.switch_page(1))
 
         # 添加封面模板按钮
         template_btn = QPushButton("🎨")
         template_btn.setCheckable(True)
-        template_btn.clicked.connect(lambda: self.switch_page(3))
+        template_btn.clicked.connect(lambda: self.switch_page(2))
 
         # 添加工具箱按钮
         tools_btn = QPushButton("🧰")
         tools_btn.setCheckable(True)
-        tools_btn.clicked.connect(lambda: self.switch_page(4))
+        tools_btn.clicked.connect(lambda: self.switch_page(3))
 
         settings_btn = QPushButton("⚙️")
         settings_btn.setCheckable(True)
-        settings_btn.clicked.connect(lambda: self.switch_page(5))
+        settings_btn.clicked.connect(lambda: self.switch_page(4))
 
         sidebar_layout.addWidget(home_btn)
-        sidebar_layout.addWidget(user_btn)
         sidebar_layout.addWidget(browser_env_btn)
         sidebar_layout.addWidget(template_btn)
         sidebar_layout.addWidget(tools_btn)
@@ -212,7 +206,7 @@ class XiaohongshuUI(QMainWindow):
         sidebar_layout.addStretch()
 
         # 存储按钮引用以便切换状态
-        self.sidebar_buttons = [home_btn, user_btn, browser_env_btn, template_btn, tools_btn, settings_btn]
+        self.sidebar_buttons = [home_btn, browser_env_btn, template_btn, tools_btn, settings_btn]
 
         # 添加侧边栏到主布局
         main_layout.addWidget(sidebar)
@@ -223,7 +217,6 @@ class XiaohongshuUI(QMainWindow):
 
         # 创建并添加页面
         self.home_page = HomePage(self)
-        self.user_management_page = UserManagementPage(self)
         self.browser_environment_page = BrowserEnvironmentPage(self)
         self.cover_template_page = CoverTemplatePage(self)
         self.tools_page = ToolsPage(self)
@@ -231,15 +224,11 @@ class XiaohongshuUI(QMainWindow):
 
         # 将页面添加到堆叠窗口
         self.stack.addWidget(self.home_page)
-        self.stack.addWidget(self.user_management_page)
         self.stack.addWidget(self.browser_environment_page)
         self.stack.addWidget(self.cover_template_page)
         self.stack.addWidget(self.tools_page)
         self.stack.addWidget(self.settings_page)
 
-        # 连接用户管理页面的信号
-        self.user_management_page.user_switched.connect(self.on_user_switched)
-        
         # 连接封面模板页面的信号
         self.cover_template_page.template_applied.connect(self.on_cover_generated)
 
@@ -297,14 +286,6 @@ class XiaohongshuUI(QMainWindow):
         for i, btn in enumerate(self.sidebar_buttons):
             btn.setChecked(i == index)
     
-    def on_user_switched(self, user_id):
-        """处理用户切换事件"""
-        try:
-            self.logger.info(f"用户已切换到ID: {user_id}")
-            # 这里可以添加用户切换后的其他处理逻辑
-            # 比如重新加载用户相关的配置、重置浏览器状态等
-        except Exception as e:
-            self.logger.error(f"处理用户切换失败: {str(e)}")
 
     def on_cover_generated(self, cover_path):
         """处理封面生成完成事件"""

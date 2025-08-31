@@ -76,7 +76,14 @@ class XiaohongshuPoster:
                     '--disable-infobars',
                     '--start-maximized',
                     '--ignore-certificate-errors',
-                    '--ignore-ssl-errors'
+                    '--ignore-ssl-errors',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-renderer-backgrounding',
+                    '--disable-backgrounding-occluded-windows',
+                    '--memory-pressure-off',
+                    '--max_old_space_size=4096'
                 ]
             }
 
@@ -116,8 +123,33 @@ class XiaohongshuPoster:
                 else:
                     raise Exception(f"浏览器文件不存在: {chromium_path}")
 
-            # 获取默认的 Chromium 可执行文件路径
-            self.browser = await self.playwright.chromium.launch(**launch_args)
+            # 尝试使用系统Chrome，如果失败再使用Chromium
+            try:
+                # 检查系统Chrome路径
+                system_chrome_paths = [
+                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+                    '/Applications/Chromium.app/Contents/MacOS/Chromium'
+                ]
+                
+                chrome_found = False
+                for chrome_path in system_chrome_paths:
+                    if os.path.exists(chrome_path):
+                        launch_args['executable_path'] = chrome_path
+                        chrome_found = True
+                        print(f"使用系统Chrome: {chrome_path}")
+                        break
+                
+                if not chrome_found and chromium_path and os.path.exists(chromium_path):
+                    launch_args['executable_path'] = chromium_path
+                    print(f"使用打包Chromium: {chromium_path}")
+                
+                self.browser = await self.playwright.chromium.launch(**launch_args)
+            except Exception as e:
+                # 如果指定路径失败，移除executable_path让playwright使用默认路径
+                print(f"指定路径启动失败: {e}")
+                if 'executable_path' in launch_args:
+                    del launch_args['executable_path']
+                self.browser = await self.playwright.chromium.launch(**launch_args)
             # 创建新的上下文时设置权限
             self.context = await self.browser.new_context(
                 permissions=['geolocation']  # 自动允许位置信息访问

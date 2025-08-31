@@ -250,6 +250,26 @@ class ProxyService:
         else:
             return []
     
+    def get_all_proxy_configs(self, user_id: int = None, active_only: bool = True) -> List[ProxyConfig]:
+        """获取所有代理配置（兼容旧接口）"""
+        if user_id is None:
+            # 如果没有指定用户，返回所有配置
+            session = self.db_manager.get_session_direct()
+            try:
+                query = session.query(ProxyConfig)
+                if active_only:
+                    query = query.filter(ProxyConfig.is_active == True)
+                return query.order_by(ProxyConfig.created_at.desc()).all()
+            finally:
+                session.close()
+        else:
+            return self.get_user_proxy_configs(user_id, active_only)
+    
+    def get_all(self, user_id: int = None):
+        """兼容旧接口的方法"""
+        configs = self.get_all_proxy_configs(user_id)
+        return [config.to_dict() for config in configs]
+    
     def get_proxy_config_stats(self, user_id: int) -> Dict[str, Any]:
         """获取用户代理配置统计信息"""
         session = self.db_manager.get_session_direct()
@@ -259,8 +279,8 @@ class ProxyService:
             stats = {
                 'total_count': len(configs),
                 'active_count': len([c for c in configs if c.is_active]),
-                'tested_count': len([c for c in configs if c.last_test_time is not None]),
-                'working_count': len([c for c in configs if c.last_test_result == True]),
+                'tested_count': len([c for c in configs if c.last_test_at is not None]),
+                'working_count': len([c for c in configs if c.test_success == True]),
                 'default_config': None,
                 'avg_latency': None
             }
@@ -273,7 +293,7 @@ class ProxyService:
                     'name': default_config.name,
                     'host': default_config.host,
                     'port': default_config.port,
-                    'last_test_result': default_config.last_test_result
+                    'test_success': default_config.test_success
                 }
             
             # 计算平均延迟

@@ -3,8 +3,6 @@
 包含应用程序的各种页面组件
 """
 
-from .user_management import UserManagementPage
+# 暂时为空，根据需要可以添加其他页面的导入
 
-__all__ = [
-    'UserManagementPage'
-] 
+__all__ = [] 

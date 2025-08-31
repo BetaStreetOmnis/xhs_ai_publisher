@@ -8,3 +8,4 @@ xiaohongshu_cookies.json
 ./ai_publish_google_shop
 ./ai_publish_google_shop/*
 CLAUDE.md
+./venv

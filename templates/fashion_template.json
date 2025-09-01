@@ -1,0 +1,30 @@
+{
+  "name": "时尚模板",
+  "size": [1080, 1080],
+  "bg_color": "#FFF5F5",
+  "text_config": {
+    "main_title_pos": [80, 120],
+    "main_title_size": 90,
+    "main_title_color": "#FF2442",
+    "subtitle_pos": [80, 240],
+    "subtitle_size": 45,
+    "subtitle_color": "#666666"
+  },
+  "tag_config": {
+    "start_y": 800,
+    "height": 50,
+    "margin": 15
+  },
+  "emoji_config": {
+    "position": [920, 80],
+    "size": 80
+  },
+  "decorations": [
+    {
+      "type": "line",
+      "points": [[80, 200], [1000, 200]],
+      "color": "#FF2442",
+      "width": 3
+    }
+  ]
+}

@@ -14,7 +14,7 @@ sys.path.insert(0, project_root)
 
 from src.config.database import DatabaseManager
 from src.core.models import Base, User, ProxyConfig, BrowserFingerprint, BrowserEnvironment, ContentTemplate, PublishHistory, ScheduledTask
-from src.core.services.user_service import user_service
+from src.core.services.browser_environment_service import browser_environment_service
 from src.core.services.fingerprint_service import fingerprint_service
 
 
@@ -48,25 +48,31 @@ def create_default_user():
         print("👤 创建默认用户...")
         
         # 检查是否已存在用户
-        existing_users = user_service.get_all_users()
-        if existing_users:
-            print(f"ℹ️ 已存在 {len(existing_users)} 个用户，跳过默认用户创建")
-            return
-        
-        # 创建默认用户
-        default_user = user_service.create_user(
-            username="default_user",
-            phone="13800138000",
-            display_name="默认用户"
-        )
-        
-        # 设置为当前用户
-        user_service.switch_user(default_user.id)
-        
-        print(f"✅ 默认用户创建成功: {default_user.username}")
-        
-        # 为默认用户创建预设浏览器指纹
-        create_default_fingerprints(default_user.id)
+        db_manager = DatabaseManager()
+        session = db_manager.get_session_direct()
+        try:
+            from src.core.models.user import User
+            existing_users = session.query(User).all()
+            if existing_users:
+                print(f"ℹ️ 已存在 {len(existing_users)} 个用户，跳过默认用户创建")
+                return
+            
+            # 创建默认用户
+            default_user = User(
+                username="default_user",
+                phone="13800138000",
+                display_name="默认用户"
+            )
+            session.add(default_user)
+            session.commit()
+            
+            print(f"✅ 默认用户创建成功: {default_user.username}")
+            
+            # 为默认用户创建预设浏览器指纹
+            create_default_fingerprints(default_user.id)
+            
+        finally:
+            session.close()
         
     except Exception as e:
         print(f"❌ 创建默认用户失败: {str(e)}")
@@ -129,10 +135,11 @@ def check_database_status():
                 user_count = result.scalar()
                 print(f"👤 用户数量: {user_count}")
                 
-                # 检查当前用户
-                current_user = user_service.get_current_user()
-                if current_user:
-                    print(f"🟢 当前用户: {current_user.username}")
+                # 检查第一个用户
+                if user_count > 0:
+                    from src.core.models.user import User
+                    first_user = session.query(User).first()
+                    print(f"🟢 当前用户: {first_user.username}")
                 else:
                     print("⚪ 无当前用户")
             
@@ -187,4 +194,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()

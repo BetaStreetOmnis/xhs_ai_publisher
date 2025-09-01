@@ -29,8 +29,8 @@ class CoverTemplateService:
     def _init_database(self):
         """初始化数据库表"""
         try:
-            # 获取数据库引擎
-            engine = database_manager.get_engine()
+            # 使用现有的数据库引擎
+            engine = database_manager.engine
             if engine:
                 # 创建模板表
                 Base.metadata.create_all(engine, tables=[CoverTemplate.__table__])
@@ -45,6 +45,40 @@ class CoverTemplateService:
             if self.get_templates_count() > 0:
                 return
             
+            # 加载新的模板库
+            template_file = os.path.join("templates", "cover_templates_library.json")
+            if os.path.exists(template_file):
+                with open(template_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                # 将新模板格式转换为旧格式
+                for template in data["templates"]:
+                    template_config = {
+                        'background_color': template.get('bg_color', '#FFFFFF'),
+                        'text_config': template.get('text_config', {}),
+                        'elements': template.get('elements', {}),
+                        'size': template.get('size', [1080, 1080])
+                    }
+                    
+                    self.create_template(
+                        name=template['name'],
+                        category=template['category'],
+                        style_type='new_template',
+                        description=f"{template['category']}风格模板",
+                        config=template_config,
+                        is_default=True
+                    )
+            
+            print("✅ 新模板库初始化完成")
+            
+        except Exception as e:
+            print(f"❌ 新模板库初始化失败: {str(e)}")
+            # 回退到旧模板
+            self._init_legacy_templates()
+    
+    def _init_legacy_templates(self):
+        """初始化旧版模板（兼容）"""
+        try:
             # 创建默认模板配置
             default_templates = [
                 {
@@ -129,20 +163,17 @@ class CoverTemplateService:
             for template_data in default_templates:
                 self.create_template(**template_data)
             
-            print("✅ 默认封面模板初始化完成")
+            print("✅ 旧版模板初始化完成")
             
         except Exception as e:
-            print(f"❌ 默认模板初始化失败: {str(e)}")
+            print(f"❌ 旧版模板初始化失败: {str(e)}")
     
     def create_template(self, name: str, category: str, style_type: str, 
                        description: str = "", config: Dict = None, 
                        is_default: bool = False) -> Optional[int]:
         """创建新模板"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return None
-            
+            session = database_manager.get_session_direct()
             template = CoverTemplate(
                 name=name,
                 category=category,
@@ -164,18 +195,17 @@ class CoverTemplateService:
             
         except Exception as e:
             print(f"❌ 创建模板失败: {str(e)}")
-            if session:
+            try:
                 session.rollback()
                 session.close()
+            except:
+                pass
             return None
     
     def get_templates(self, category: str = None) -> List[Dict]:
         """获取模板列表"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return []
-            
+            session = database_manager.get_session_direct()
             query = session.query(CoverTemplate).filter_by(is_active=True)
             if category:
                 query = query.filter_by(category=category)
@@ -289,13 +319,15 @@ class CoverTemplateService:
             thumbnail.save(thumbnail_path)
             
             # 更新数据库中的缩略图路径
-            session = database_manager.get_session()
-            if session:
+            try:
+                session = database_manager.get_session_direct()
                 template = session.query(CoverTemplate).filter_by(id=template_id).first()
                 if template:
                     template.thumbnail_path = thumbnail_path
                     session.commit()
                 session.close()
+            except Exception as e:
+                print(f"❌ 更新缩略图路径失败: {str(e)}")
             
         except Exception as e:
             print(f"❌ 生成缩略图失败: {str(e)}")
@@ -499,7 +531,255 @@ class CoverTemplateService:
                                    padding, 600, 1080 - padding * 2)
         
         return image
+
+    def generate_from_template(self, template: Dict, text_content: Dict, output_dir: str = None) -> Dict:
+        """根据新模板格式生成封面"""
+        try:
+            if output_dir is None:
+                output_dir = os.path.join(self.template_dir, 'generated')
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # 创建封面图片
+            size = template.get('size', [1080, 1080])
+            cover = Image.new('RGB', tuple(size), 'white')
+            draw = ImageDraw.Draw(cover)
+            
+            # 设置背景
+            self._draw_template_background(cover, draw, template)
+            
+            # 绘制文字
+            self._draw_template_text(cover, draw, template, text_content)
+            
+            # 绘制装饰元素
+            self._draw_template_elements(cover, draw, template)
+            
+            # 保存图片
+            timestamp = int(time.time())
+            cover_path = os.path.join(output_dir, f'cover_{timestamp}.png')
+            cover.save(cover_path, 'PNG', quality=95)
+            
+            return {
+                'cover_path': cover_path,
+                'template_id': template.get('id'),
+                'template_name': template.get('name'),
+                'text_content': text_content
+            }
+            
+        except Exception as e:
+            print(f"❌ 从模板生成封面失败: {str(e)}")
+            return None
     
+    def _draw_template_background(self, cover, draw, template):
+        """绘制模板背景"""
+        size = template.get('size', [1080, 1080])
+        
+        # 渐变背景
+        if 'bg_gradient' in template:
+            start_color = template['bg_gradient'][0]
+            end_color = template['bg_gradient'][1]
+            
+            for y in range(size[1]):
+                ratio = y / size[1]
+                r1, g1, b1 = int(start_color[1:3], 16), int(start_color[3:5], 16), int(start_color[5:7], 16)
+                r2, g2, b2 = int(end_color[1:3], 16), int(end_color[3:5], 16), int(end_color[5:7], 16)
+                
+                r = int(r1 + (r2 - r1) * ratio)
+                g = int(g1 + (g2 - g1) * ratio)
+                b = int(b1 + (b2 - b1) * ratio)
+                
+                color = (r, g, b)
+                draw.line([(0, y), (size[0], y)], fill=color)
+        else:
+            # 纯色背景
+            bg_color = template.get('bg_color', '#FFFFFF')
+            draw.rectangle([0, 0, size[0], size[1]], fill=bg_color)
+    
+    def _draw_template_text(self, cover, draw, template, text_content):
+        """绘制模板文字"""
+        text_config = template.get('text_config', {})
+        
+        # 绘制主标题
+        if 'main_title' in text_config and text_content.get('main_title'):
+            self._draw_template_single_text(
+                cover, draw, text_content['main_title'], text_config['main_title']
+            )
+        
+        # 绘制副标题
+        if 'subtitle' in text_config and text_content.get('subtitle'):
+            self._draw_template_single_text(
+                cover, draw, text_content['subtitle'], text_config['subtitle']
+            )
+        
+        # 绘制标签
+        if 'tags' in text_config and text_content.get('tags'):
+            tags = text_content['tags']
+            if isinstance(tags, str):
+                tags = tags.split()
+            
+            self._draw_template_tags(
+                cover, draw, tags, text_config['tags']
+            )
+    
+    def _draw_template_single_text(self, cover, draw, text, config):
+        """绘制单个文本"""
+        try:
+            # 加载中文字体
+            font_path = self._get_chinese_font()
+            font_size = config.get('font_size', 48)
+            font = ImageFont.truetype(font_path, font_size)
+            
+            # 计算文本位置
+            pos = config.get('pos', [50, 50])
+            max_width = config.get('max_width', 980)
+            color = config.get('color', '#000000')
+            
+            # 自动换行
+            lines = self._wrap_text(text, font, max_width)
+            line_height = font_size + 10
+            
+            # 计算起始Y位置
+            total_height = len(lines) * line_height
+            start_y = pos[1] - total_height // 2
+            
+            for i, line in enumerate(lines):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                text_width = bbox[2] - bbox[0]
+                
+                # 居中对齐
+                if config.get('text_align') == 'center':
+                    x = pos[0] + (max_width - text_width) // 2
+                else:
+                    x = pos[0]
+                
+                y = start_y + i * line_height
+                draw.text((x, y), line, fill=color, font=font)
+                
+        except Exception as e:
+            print(f"❌ 绘制文本失败: {str(e)}")
+    
+    def _draw_template_tags(self, cover, draw, tags, config):
+        """绘制标签"""
+        try:
+            font_path = self._get_chinese_font()
+            font_size = config.get('font_size', 36)
+            font = ImageFont.truetype(font_path, font_size)
+            
+            pos = config.get('pos', [50, 900])
+            spacing = config.get('spacing', 20)
+            tag_bg_color = config.get('tag_bg_color', '#F5F5F5')
+            tag_padding = config.get('tag_padding', [15, 8])
+            
+            x_offset = pos[0]
+            for tag in tags:
+                if tag.strip():  # 跳过空标签
+                    tag_text = f"#{tag.strip()}"
+                    bbox = draw.textbbox((0, 0), tag_text, font=font)
+                    tag_width = bbox[2] - bbox[0] + tag_padding[0] * 2
+                    tag_height = bbox[3] - bbox[1] + tag_padding[1] * 2
+                    
+                    # 绘制标签背景
+                    draw.rounded_rectangle(
+                        [x_offset, pos[1], x_offset + tag_width, pos[1] + tag_height],
+                        radius=5, fill=tag_bg_color
+                    )
+                    
+                    # 绘制标签文字
+                    text_x = x_offset + tag_padding[0]
+                    text_y = pos[1] + tag_padding[1]
+                    draw.text((text_x, text_y), tag_text, fill='#666666', font=font)
+                    
+                    x_offset += tag_width + spacing
+                    
+        except Exception as e:
+            print(f"❌ 绘制标签失败: {str(e)}")
+    
+    def _draw_template_elements(self, cover, draw, template):
+        """绘制装饰元素"""
+        elements = template.get('elements', {})
+        
+        for key, element in elements.items():
+            if isinstance(element, dict):
+                self._draw_single_element(cover, draw, element)
+            elif isinstance(element, list):
+                for item in element:
+                    self._draw_single_element(cover, draw, item)
+    
+    def _draw_single_element(self, cover, draw, element):
+        """绘制单个装饰元素"""
+        try:
+            element_type = element.get('type', 'circle')
+            
+            if element_type == 'circle':
+                pos = element.get('pos', [0, 0])
+                size = element.get('size', [50, 50])
+                color = element.get('color', '#000000')
+                opacity = element.get('opacity', 1.0)
+                
+                # 创建圆形
+                x, y = pos
+                w, h = size
+                draw.ellipse([x, y, x + w, y + h], fill=color)
+                
+            elif element_type == 'border':
+                pos = element.get('pos', [0, 0])
+                size = element.get('size', [100, 100])
+                color = element.get('color', '#000000')
+                width = element.get('width', 2)
+                radius = element.get('radius', 0)
+                
+                if radius > 0:
+                    draw.rounded_rectangle([pos[0], pos[1], pos[0] + size[0], pos[1] + size[1]], 
+                                         radius=radius, outline=color, width=width)
+                else:
+                    draw.rectangle([pos[0], pos[1], pos[0] + size[0], pos[1] + size[1]], 
+                                 outline=color, width=width)
+                    
+        except Exception as e:
+            print(f"❌ 绘制装饰元素失败: {str(e)}")
+
+    def _get_chinese_font(self):
+        """获取中文字体"""
+        chinese_fonts = [
+            "/System/Library/Fonts/PingFang.ttc",  # macOS PingFang
+            "/System/Library/Fonts/STHeiti Medium.ttc",  # macOS Heiti
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Linux
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux
+            "Arial.ttf"  # 回退字体
+        ]
+        
+        for font_path in chinese_fonts:
+            if os.path.exists(font_path):
+                return font_path
+        
+        return "Arial.ttf"
+    
+    def _wrap_text(self, text, font, max_width):
+        """文本自动换行"""
+        if not text:
+            return []
+        
+        lines = []
+        paragraphs = text.split('\n')
+        
+        for paragraph in paragraphs:
+            words = list(paragraph)  # 中文按字符分割
+            current_line = ""
+            
+            for char in words:
+                test_line = current_line + char
+                bbox = font.getbbox(test_line)
+                if bbox[2] - bbox[0] <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = char
+            
+            if current_line:
+                lines.append(current_line)
+        
+        return lines
+
     def _generate_gradient_cover(self, image, title, subtitle, config):
         """生成渐变背景封面"""
         draw = ImageDraw.Draw(image)

@@ -1,0 +1,31 @@
+# 测试依赖
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0
+pytest-mock>=3.10.0
+pytest-html>=4.0.0
+pytest-xvfb>=2.0.0
+
+# 模拟和测试工具
+faker>=18.0.0
+factory-boy>=3.2.1
+freezegun>=1.2.2
+
+# 性能测试
+pytest-benchmark>=4.0.0
+
+# 浏览器测试
+playwright>=1.30.0
+selenium>=4.8.0
+
+# 数据库测试
+pytest-sqlalchemy>=0.2.0
+sqlalchemy-utils>=0.40.0
+
+# 网络测试
+responses>=0.23.0
+httpx>=0.24.0
+
+# 日志和报告
+pytest-logger>=0.5.1
+pytest-html-reporter>=0.2.9

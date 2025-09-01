@@ -13,7 +13,7 @@ from src.core.pages.home import HomePage
 from src.core.pages.setting import SettingsPage
 from src.core.pages.tools import ToolsPage
 from src.core.pages.browser_environment_page import BrowserEnvironmentPage
-from src.core.pages.cover_template_page import CoverTemplatePage
+from src.core.pages.simple_backend_config import BackendConfigPage
 from src.logger.logger import Logger
 
 # 设置日志文件路径
@@ -184,10 +184,10 @@ class XiaohongshuUI(QMainWindow):
         browser_env_btn.setCheckable(True)
         browser_env_btn.clicked.connect(lambda: self.switch_page(1))
 
-        # 添加封面模板按钮
-        template_btn = QPushButton("🎨")
-        template_btn.setCheckable(True)
-        template_btn.clicked.connect(lambda: self.switch_page(2))
+        # 添加后台配置按钮
+        backend_btn = QPushButton("⚙️")
+        backend_btn.setCheckable(True)
+        backend_btn.clicked.connect(lambda: self.switch_page(2))
 
         # 添加工具箱按钮
         tools_btn = QPushButton("🧰")
@@ -200,13 +200,13 @@ class XiaohongshuUI(QMainWindow):
 
         sidebar_layout.addWidget(home_btn)
         sidebar_layout.addWidget(browser_env_btn)
-        sidebar_layout.addWidget(template_btn)
+        sidebar_layout.addWidget(backend_btn)
         sidebar_layout.addWidget(tools_btn)
         sidebar_layout.addWidget(settings_btn)
         sidebar_layout.addStretch()
 
         # 存储按钮引用以便切换状态
-        self.sidebar_buttons = [home_btn, browser_env_btn, template_btn, tools_btn, settings_btn]
+        self.sidebar_buttons = [home_btn, browser_env_btn, backend_btn, tools_btn, settings_btn]
 
         # 添加侧边栏到主布局
         main_layout.addWidget(sidebar)
@@ -218,19 +218,16 @@ class XiaohongshuUI(QMainWindow):
         # 创建并添加页面
         self.home_page = HomePage(self)
         self.browser_environment_page = BrowserEnvironmentPage(self)
-        self.cover_template_page = CoverTemplatePage(self)
+        self.backend_config_page = BackendConfigPage(self)
         self.tools_page = ToolsPage(self)
         self.settings_page = SettingsPage(self)
 
-        # 将页面添加到堆叠窗口
+# 将页面添加到堆叠窗口
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.browser_environment_page)
-        self.stack.addWidget(self.cover_template_page)
+        self.stack.addWidget(self.backend_config_page)
         self.stack.addWidget(self.tools_page)
         self.stack.addWidget(self.settings_page)
-
-        # 连接封面模板页面的信号
-        self.cover_template_page.template_applied.connect(self.on_cover_generated)
 
         # 创建浏览器线程
         self.browser_thread = BrowserThread()
@@ -248,6 +245,9 @@ class XiaohongshuUI(QMainWindow):
         self.browser_thread.preview_error.connect(
             self.home_page.handle_preview_error)
         self.browser_thread.start()
+        
+        # 启动定时发布调度器
+        from src.core.scheduler.schedule_manager import schedule_manager
         
         # 启动下载器线程
         self.start_downloader_thread()
@@ -287,21 +287,14 @@ class XiaohongshuUI(QMainWindow):
             btn.setChecked(i == index)
     
 
-    def on_cover_generated(self, cover_path):
-        """处理封面生成完成事件"""
-        try:
-            self.logger.info(f"封面生成完成: {cover_path}")
-            # 切换到首页并应用生成的封面
-            self.switch_page(0)  # 切换到首页
-            # 通知首页应用新的封面
-            if hasattr(self.home_page, 'apply_generated_cover'):
-                self.home_page.apply_generated_cover(cover_path)
-        except Exception as e:
-            self.logger.error(f"应用生成的封面失败: {str(e)}")
 
     def closeEvent(self, event):
         print("关闭应用")
         try:
+            # 停止定时发布调度器
+            from src.core.scheduler.schedule_manager import schedule_manager
+            schedule_manager.stop_scheduler()
+            
             # 停止所有线程
             if hasattr(self, 'browser_thread'):
                 self.browser_thread.stop()

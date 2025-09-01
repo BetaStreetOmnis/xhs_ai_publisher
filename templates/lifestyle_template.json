@@ -1,0 +1,30 @@
+{
+  "name": "生活模板",
+  "size": [1080, 1080],
+  "bg_color": "#F8F9FF",
+  "text_config": {
+    "main_title_pos": [60, 100],
+    "main_title_size": 85,
+    "main_title_color": "#333333",
+    "subtitle_pos": [60, 220],
+    "subtitle_size": 40,
+    "subtitle_color": "#666666"
+  },
+  "tag_config": {
+    "start_y": 850,
+    "height": 45,
+    "margin": 12
+  },
+  "emoji_config": {
+    "position": [900, 100],
+    "size": 70
+  },
+  "decorations": [
+    {
+      "type": "circle",
+      "bbox": [[50, 50], [130, 130]],
+      "color": "#4A90E2",
+      "width": 2
+    }
+  ]
+}

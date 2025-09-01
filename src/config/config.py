@@ -103,3 +103,65 @@ class Config:
             self.config['title_edit'] = {}
         self.config['title_edit']['author'] = author
         self.save_config()
+
+    def get_schedule_config(self):
+        """获取定时发布配置"""
+        return self.config.get('schedule', {
+            'enabled': False,
+            'schedule_time': '',
+            'interval_hours': 2,
+            'max_posts': 10,
+            'tasks': []
+        })
+
+    def update_schedule_config(self, schedule_config):
+        """更新定时发布配置"""
+        self.config['schedule'] = schedule_config
+        self.save_config()
+
+    def get_model_config(self):
+        """获取模型配置"""
+        return self.config.get('model', {
+            'provider': 'OpenAI GPT-3.5',
+            'api_key': '',
+            'api_endpoint': 'https://api.openai.com/v1/chat/completions',
+            'model_name': 'gpt-3.5-turbo',
+            'system_prompt': '你是一个小红书内容创作助手，帮助用户生成优质内容',
+            'advanced': {
+                'temperature': 0.7,
+                'max_tokens': 1000,
+                'timeout': 30
+            }
+        })    
+
+    def get_provider_endpoints(self):
+        """获取各提供商的默认端点"""
+        return {
+            'OpenAI GPT-4': 'https://api.openai.com/v1/chat/completions',
+            'OpenAI GPT-3.5': 'https://api.openai.com/v1/chat/completions',
+            'Claude 3.5': 'https://api.anthropic.com/v1/messages',
+            'Qwen3': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            'Kimi2': 'https://api.moonshot.cn/v1/chat/completions',
+            '本地模型': 'http://localhost:11434/api/chat'
+        }
+
+    def update_model_config(self, model_config):
+        """更新模型配置"""
+        self.config['model'] = model_config
+        self.save_config()
+
+    def get_api_config(self):
+        """获取API配置"""
+        return self.config.get('api', {
+            'xhs_api_key': '',
+            'xhs_api_secret': '',
+            'image_provider': '本地存储',
+            'image_endpoint': '',
+            'image_access_key': '',
+            'image_secret_key': ''
+        })
+
+    def update_api_config(self, api_config):
+        """更新API配置"""
+        self.config['api'] = api_config
+        self.save_config()

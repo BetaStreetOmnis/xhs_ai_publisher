@@ -274,10 +274,6 @@ class HomePage(QWidget):
         self.generate_btn.clicked.connect(self.generate_content)
         button_layout.addWidget(self.generate_btn)
         
-        # 添加封面模板按钮
-        template_btn = QPushButton("🎨 封面模板")
-        template_btn.clicked.connect(self.open_template_library)
-        button_layout.addWidget(template_btn)
 
         input_container_layout.addLayout(button_layout)
         input_layout.addWidget(input_container)
@@ -799,18 +795,3 @@ class HomePage(QWidget):
             self.parent.logger.error(f"应用生成封面失败: {str(e)}")
             TipWindow(self.parent, f"❌ 应用封面失败: {str(e)}").show()
 
-    def open_template_library(self):
-        """打开封面模板库"""
-        try:
-            # 切换到封面模板页面
-            self.parent.switch_page(3)  # 封面模板页面的索引
-            
-            # 如果有生成的标题，自动填入模板页面
-            if hasattr(self, 'title_output') and self.title_output.toPlainText().strip():
-                title_text = self.title_output.toPlainText().strip()
-                if hasattr(self.parent, 'cover_template_page'):
-                    self.parent.cover_template_page.set_title_text(title_text)
-            
-        except Exception as e:
-            self.parent.logger.error(f"打开模板库失败: {str(e)}")
-            TipWindow(self.parent, f"❌ 打开模板库失败: {str(e)}").show()

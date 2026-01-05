@@ -17,6 +17,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 # 导入增强版服务
 from src.core.services.enhanced_cover_service import enhanced_cover_service
 from src.core.generation.cover_text_generator import CoverTextGenerator
+from src.core.services.system_image_template_service import system_image_template_service
+from src.core.ui.qt_font import get_ui_font_family
 
 
 class AICoverGeneratorThread(QThread):
@@ -24,12 +26,13 @@ class AICoverGeneratorThread(QThread):
     finished = pyqtSignal(dict)  # 生成完成，返回结果
     error = pyqtSignal(str)
     
-    def __init__(self, content, template_type, platform="xiaohongshu", bg_image_path=None):
+    def __init__(self, content, template_type, platform="xiaohongshu", bg_image_path=None, template_label=None):
         super().__init__()
         self.content = content
         self.template_type = template_type
         self.platform = platform
         self.bg_image_path = bg_image_path
+        self.template_label = template_label
     
     def run(self):
         try:
@@ -39,6 +42,11 @@ class AICoverGeneratorThread(QThread):
                 platform=self.platform,
                 bg_image_path=self.bg_image_path
             )
+            if isinstance(result, dict):
+                if self.template_label:
+                    result["template_label"] = self.template_label
+                if self.bg_image_path:
+                    result["bg_image_path"] = self.bg_image_path
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
@@ -50,23 +58,32 @@ class BatchAICoverThread(QThread):
     finished = pyqtSignal(list)      # 所有结果
     error = pyqtSignal(str)
     
-    def __init__(self, content, template_types, platform="xiaohongshu"):
+    def __init__(self, content, templates, platform="xiaohongshu"):
         super().__init__()
         self.content = content
-        self.template_types = template_types
+        self.templates = templates
         self.platform = platform
     
     def run(self):
         try:
             results = []
-            for i, template_type in enumerate(self.template_types):
+            for i, tpl in enumerate(self.templates):
+                template_type = (tpl or {}).get("template_type") or "lifestyle"
+                bg_image_path = (tpl or {}).get("bg_image_path")
+                template_label = (tpl or {}).get("template_label")
                 result = enhanced_cover_service.generate_ai_cover(
                     content=self.content,
                     template_type=template_type,
-                    platform=self.platform
+                    platform=self.platform,
+                    bg_image_path=bg_image_path
                 )
+                if isinstance(result, dict):
+                    if template_label:
+                        result["template_label"] = template_label
+                    if bg_image_path:
+                        result["bg_image_path"] = bg_image_path
                 results.append(result)
-                self.progress.emit(i + 1, len(self.template_types))
+                self.progress.emit(i + 1, len(self.templates))
             self.finished.emit(results)
         except Exception as e:
             self.error.emit(str(e))
@@ -103,15 +120,15 @@ class AICoverPreviewWidget(QWidget):
         text_layout = QVBoxLayout(self.text_info_group)
         
         self.title_label = QLabel("主标题: -")
-        self.title_label.setFont(QFont("Microsoft YaHei", 11))
+        self.title_label.setFont(QFont(get_ui_font_family(), 11))
         text_layout.addWidget(self.title_label)
         
         self.subtitle_label = QLabel("副标题: -")
-        self.subtitle_label.setFont(QFont("Microsoft YaHei", 10))
+        self.subtitle_label.setFont(QFont(get_ui_font_family(), 10))
         text_layout.addWidget(self.subtitle_label)
         
         self.tags_label = QLabel("标签: -")
-        self.tags_label.setFont(QFont("Microsoft YaHei", 9))
+        self.tags_label.setFont(QFont(get_ui_font_family(), 9))
         text_layout.addWidget(self.tags_label)
         
         layout.addWidget(self.text_info_group)
@@ -148,6 +165,9 @@ class AICoverPage(QWidget):
         super().__init__(parent)
         self.parent = parent
         self.current_results = []
+        self.selected_result = None
+        self.bg_image_path = None
+        self.template_source = "local"  # local / system_showcase / system_cover
         self.setup_ui()
     
     def setup_ui(self):
@@ -157,7 +177,7 @@ class AICoverPage(QWidget):
         
         # 标题
         title = QLabel("🎨 AI智能封面生成")
-        title.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))
+        title.setFont(QFont(get_ui_font_family(), 18, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
@@ -234,13 +254,8 @@ class AICoverPage(QWidget):
         template_layout = QHBoxLayout()
         template_layout.addWidget(QLabel("模板:"))
         self.template_combo = QComboBox()
-        self.template_combo.addItems([
-            "时尚模板",
-            "生活模板", 
-            "美妆模板",
-            "美食模板",
-            "旅行模板"
-        ])
+        self.template_combo.currentIndexChanged.connect(self.on_template_changed)
+        self._load_cover_templates()
         template_layout.addWidget(self.template_combo)
         settings_layout.addLayout(template_layout)
         
@@ -256,6 +271,9 @@ class AICoverPage(QWidget):
         select_bg_btn.clicked.connect(self.select_background)
         bg_layout.addWidget(select_bg_btn)
         settings_layout.addLayout(bg_layout)
+
+        # 初始化显示模板背景（系统模板）
+        self.on_template_changed(self.template_combo.currentIndex())
         
         control_layout.addWidget(settings_group)
         
@@ -331,6 +349,7 @@ class AICoverPage(QWidget):
         template_type = self.get_template_type_from_combo()
         platform = self.platform_combo.currentText()
         bg_path = self.get_background_path()
+        template_label = self.get_template_label()
         
         # 显示进度
         self.progress_bar.setVisible(True)
@@ -341,7 +360,8 @@ class AICoverPage(QWidget):
             content=content,
             template_type=template_type,
             platform=platform,
-            bg_image_path=bg_path
+            bg_image_path=bg_path,
+            template_label=template_label,
         )
         self.generator_thread.finished.connect(self.on_single_generated)
         self.generator_thread.error.connect(self.on_generation_error)
@@ -357,18 +377,18 @@ class AICoverPage(QWidget):
         if not content:
             QMessageBox.warning(self, "提示", "请输入内容后再生成")
             return
-        
-        template_types = ["fashion", "lifestyle", "beauty", "food", "travel"]
+
+        templates = self.get_batch_templates()
         platform = self.platform_combo.currentText()
         
         # 显示进度
         self.progress_bar.setVisible(True)
-        self.progress_bar.setRange(0, len(template_types))
+        self.progress_bar.setRange(0, len(templates))
         
         # 启动批量生成线程
         self.batch_thread = BatchAICoverThread(
             content=content,
-            template_types=template_types,
+            templates=templates,
             platform=platform
         )
         self.batch_thread.progress.connect(self.on_batch_progress)
@@ -380,6 +400,7 @@ class AICoverPage(QWidget):
         """单张生成完成"""
         self.progress_bar.setVisible(False)
         self.current_results = [result]
+        self.selected_result = result
         
         # 更新预览
         self.single_preview.update_preview(
@@ -394,13 +415,18 @@ class AICoverPage(QWidget):
         """批量生成完成"""
         self.progress_bar.setVisible(False)
         self.current_results = results
+        self.selected_result = results[0] if results else None
         
         # 更新批量列表
         self.batch_list.clear()
         for i, result in enumerate(results):
-            item = QListWidgetItem(f"方案{i+1}: {result['template_type']}")
+            label = (result or {}).get("template_label") or (result or {}).get("template_type") or "cover"
+            item = QListWidgetItem(f"方案{i+1}: {label}")
             item.setData(Qt.UserRole, result)
             self.batch_list.addItem(item)
+
+        if results:
+            self.batch_list.setCurrentRow(0)
         
         # 切换到批量结果
         self.tab_widget.setCurrentIndex(1)
@@ -419,6 +445,7 @@ class AICoverPage(QWidget):
         """批量项目选择"""
         result = item.data(Qt.UserRole)
         if result:
+            self.selected_result = result
             self.single_preview.update_preview(
                 result['cover_path'],
                 result['cover_text']
@@ -433,54 +460,225 @@ class AICoverPage(QWidget):
         )
         
         if file_path:
+            self.bg_image_path = file_path
             filename = os.path.basename(file_path)
-            self.bg_path_label.setText(filename[:20] + "..." if len(filename) > 20 else filename)
+            self.bg_path_label.setText(f"自定义：{filename[:20] + '...' if len(filename) > 20 else filename}")
+            self.bg_path_label.setToolTip(file_path)
     
     def get_background_path(self) -> str:
         """获取背景图片路径"""
-        text = self.bg_path_label.text()
-        return None if text in ["使用默认背景", "未选择"] else text
+        return self.bg_image_path
     
     def get_template_type_from_combo(self) -> str:
         """从下拉框获取模板类型"""
-        mapping = {
-            "时尚模板": "fashion",
-            "生活模板": "lifestyle",
-            "美妆模板": "beauty",
-            "美食模板": "food",
-            "旅行模板": "travel"
-        }
-        return mapping.get(self.template_combo.currentText(), "lifestyle")
+        if self.template_source == "system_showcase":
+            return "xauto_showcase"
+        if self.template_source == "system_cover":
+            return "xauto_cover"
+        return self.template_combo.currentData() or "lifestyle"
+
+    def get_template_label(self) -> str:
+        """获取当前模板显示名（用于批量/列表展示）。"""
+        if self.template_source in ("system_showcase", "system_cover"):
+            data = self.template_combo.currentData() or {}
+            if isinstance(data, dict):
+                return data.get("display") or data.get("id") or "系统模板"
+            return "系统模板"
+        return self.template_combo.currentText() or "模板"
+
+    def get_batch_templates(self):
+        """生成批量模板列表（系统模板默认每种风格选一个）。"""
+        if self.template_source == "system_showcase":
+            all_items = []
+            for i in range(self.template_combo.count()):
+                data = self.template_combo.itemData(i)
+                if isinstance(data, dict) and data.get("path"):
+                    all_items.append(data)
+
+            by_category = {}
+            for tpl in all_items:
+                category = tpl.get("category") or "other"
+                by_category.setdefault(category, []).append(tpl)
+
+            picked = []
+            for _cat, group in sorted(by_category.items(), key=lambda x: x[0]):
+                group = sorted(group, key=lambda t: (t.get("name") or "", t.get("variant") or "", t.get("id") or ""))
+                picked.append(group[0])
+
+            picked = picked[:10]
+            return [
+                {
+                    "template_type": "xauto_showcase",
+                    "bg_image_path": tpl.get("path"),
+                    "template_label": tpl.get("display") or tpl.get("id"),
+                }
+                for tpl in picked
+                if tpl.get("path")
+            ]
+
+        if self.template_source == "system_cover":
+            # 从下拉框收集系统模板
+            all_items = []
+            for i in range(self.template_combo.count()):
+                data = self.template_combo.itemData(i)
+                if isinstance(data, dict) and data.get("path"):
+                    all_items.append(data)
+
+            by_style = {}
+            for tpl in all_items:
+                style = tpl.get("style") or "system"
+                by_style.setdefault(style, []).append(tpl)
+
+            picked = []
+            for _style, group in sorted(by_style.items(), key=lambda x: x[0]):
+                group = sorted(group, key=lambda t: (t.get("theme") or "", t.get("id") or ""))
+                prefer = next((t for t in group if t.get("theme") == "pink"), None)
+                picked.append(prefer or group[0])
+
+            # 控制数量，避免一次生成过多
+            picked = picked[:8]
+            return [
+                {
+                    "template_type": "xauto_cover",
+                    "bg_image_path": tpl.get("path"),
+                    "template_label": tpl.get("display") or tpl.get("id"),
+                }
+                for tpl in picked
+                if tpl.get("path")
+            ]
+
+        # 本地模板：按下拉框全部生成
+        template_types = []
+        for i in range(self.template_combo.count()):
+            template_type = self.template_combo.itemData(i)
+            if template_type:
+                template_types.append((self.template_combo.itemText(i), template_type))
+        if not template_types:
+            template_types = [("生活模板", "lifestyle")]
+
+        return [{"template_type": t, "bg_image_path": None, "template_label": name} for name, t in template_types]
+
+    def _load_cover_templates(self):
+        """加载封面模板（优先 x-auto-publisher showcase 模板）。"""
+        self.template_combo.clear()
+
+        showcase_templates = system_image_template_service.list_showcase_templates()
+        if showcase_templates:
+            self.template_source = "system_showcase"
+            for tpl in showcase_templates:
+                display = tpl.get("display") or tpl.get("id") or "showcase"
+                self.template_combo.addItem(display, tpl)
+            return
+
+        system_templates = system_image_template_service.list_cover_templates()
+        if system_templates:
+            self.template_source = "system_cover"
+            for tpl in system_templates:
+                display = tpl.get("display") or tpl.get("id") or "cover"
+                self.template_combo.addItem(display, tpl)
+            return
+
+        self.template_source = "local"
+        templates = enhanced_cover_service.get_available_cover_templates()
+        if templates:
+            for tpl in templates:
+                name = tpl.get("name") or tpl.get("type")
+                template_type = tpl.get("type")
+                if template_type:
+                    self.template_combo.addItem(name, template_type)
+            return
+
+        self.template_combo.addItem("生活模板", "lifestyle")
+
+    def on_template_changed(self, _index: int = 0):
+        """模板切换时，同步模板背景（系统模板）。"""
+        if self.template_source not in ("system_showcase", "system_cover"):
+            return
+
+        data = self.template_combo.currentData() or {}
+        if not isinstance(data, dict):
+            return
+
+        bg_path = data.get("path")
+        if not bg_path:
+            return
+
+        self.bg_image_path = bg_path
+        if hasattr(self, "bg_path_label"):
+            filename = os.path.basename(bg_path)
+            self.bg_path_label.setText(f"模板：{filename[:20] + '...' if len(filename) > 20 else filename}")
+            self.bg_path_label.setToolTip(bg_path)
+
+    def select_template_type(self, template_type: str) -> bool:
+        """选中指定模板类型"""
+        if not template_type:
+            return False
+
+        for i in range(self.template_combo.count()):
+            if self.template_combo.itemData(i) == template_type:
+                self.template_combo.setCurrentIndex(i)
+                return True
+        return False
+
+    def select_system_template(self, bg_path: str) -> bool:
+        """选中指定系统模板（cover_*.png 的绝对路径）。"""
+        if not bg_path:
+            return False
+
+        filename = os.path.basename(bg_path)
+        if "template_showcase" in bg_path or filename.startswith("showcase_"):
+            desired_source = "system_showcase"
+        elif filename.startswith("cover_"):
+            desired_source = "system_cover"
+        else:
+            desired_source = self.template_source
+
+        if desired_source != self.template_source:
+            self._load_cover_templates()
+            # 再次判断（可能回退）
+            if desired_source != self.template_source:
+                desired_source = self.template_source
+
+        for i in range(self.template_combo.count()):
+            data = self.template_combo.itemData(i)
+            if isinstance(data, dict) and data.get("path") == bg_path:
+                self.template_combo.setCurrentIndex(i)
+                self.on_template_changed()
+                return True
+
+        # 未在列表中找到，也允许直接使用该背景
+        self.template_source = desired_source if desired_source in ("system_showcase", "system_cover") else self.template_source
+        self.bg_image_path = bg_path
+        if hasattr(self, "bg_path_label"):
+            self.bg_path_label.setText(f"模板：{filename}")
+            self.bg_path_label.setToolTip(bg_path)
+        return False
     
     def save_current_cover(self):
         """保存当前封面"""
-        if not self.current_results:
+        current_result = self.selected_result or (self.current_results[0] if self.current_results else None)
+        if not current_result:
             QMessageBox.warning(self, "提示", "请先生成封面")
             return
-        
-        current_result = self.current_results[0] if len(self.current_results) == 1 else \
-                        next((r for r in self.current_results if r == self.current_results[0]), None)
-        
-        if current_result:
-            save_path, _ = QFileDialog.getSaveFileName(
-                self, "保存封面", "",
-                "PNG图片 (*.png)"
-            )
-            
-            if save_path:
-                import shutil
-                shutil.copy2(current_result['cover_path'], save_path)
-                QMessageBox.information(self, "成功", f"封面已保存到:\n{save_path}")
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "保存封面", "",
+            "PNG图片 (*.png)"
+        )
+
+        if save_path:
+            if not save_path.lower().endswith(".png"):
+                save_path = save_path + ".png"
+            import shutil
+            shutil.copy2(current_result['cover_path'], save_path)
+            QMessageBox.information(self, "成功", f"封面已保存到:\n{save_path}")
     
     def use_current_cover(self):
         """使用当前封面"""
-        if not self.current_results:
+        current_result = self.selected_result or (self.current_results[0] if self.current_results else None)
+        if not current_result:
             QMessageBox.warning(self, "提示", "请先生成封面")
             return
-        
-        current_result = self.current_results[0] if len(self.current_results) == 1 else \
-                        next((r for r in self.current_results if r == self.current_results[0]), None)
-        
-        if current_result:
-            self.cover_generated.emit(current_result['cover_path'])
-            QMessageBox.information(self, "成功", "封面已应用！")
+
+        self.cover_generated.emit(current_result['cover_path'])
+        QMessageBox.information(self, "成功", "封面已应用！")

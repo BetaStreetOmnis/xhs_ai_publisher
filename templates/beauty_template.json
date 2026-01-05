@@ -1,0 +1,30 @@
+{
+  "name": "美妆模板",
+  "size": [1080, 1080],
+  "bg_color": "#FFF0F8",
+  "text_config": {
+    "main_title_pos": [70, 150],
+    "main_title_size": 80,
+    "main_title_color": "#E91E63",
+    "subtitle_pos": [70, 250],
+    "subtitle_size": 35,
+    "subtitle_color": "#888888"
+  },
+  "tag_config": {
+    "start_y": 780,
+    "height": 40,
+    "margin": 10
+  },
+  "emoji_config": {
+    "position": [880, 120],
+    "size": 65
+  },
+  "decorations": [
+    {
+      "type": "circle",
+      "bbox": [[60, 80], [160, 180]],
+      "color": "#E91E63",
+      "width": 3
+    }
+  ]
+}

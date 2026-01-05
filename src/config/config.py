@@ -122,10 +122,12 @@ class Config:
     def get_model_config(self):
         """获取模型配置"""
         return self.config.get('model', {
-            'provider': 'OpenAI GPT-3.5',
+            'provider': 'OpenAI',
             'api_key': '',
+            'api_key_name': 'default',
             'api_endpoint': 'https://api.openai.com/v1/chat/completions',
             'model_name': 'gpt-3.5-turbo',
+            'prompt_template': 'xiaohongshu_default',
             'system_prompt': '你是一个小红书内容创作助手，帮助用户生成优质内容',
             'advanced': {
                 'temperature': 0.7,
@@ -137,12 +139,13 @@ class Config:
     def get_provider_endpoints(self):
         """获取各提供商的默认端点"""
         return {
-            'OpenAI GPT-4': 'https://api.openai.com/v1/chat/completions',
-            'OpenAI GPT-3.5': 'https://api.openai.com/v1/chat/completions',
-            'Claude 3.5': 'https://api.anthropic.com/v1/messages',
-            'Qwen3': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-            'Kimi2': 'https://api.moonshot.cn/v1/chat/completions',
-            '本地模型': 'http://localhost:11434/api/chat'
+            'OpenAI': 'https://api.openai.com/v1/chat/completions',
+            'Anthropic（Claude）': 'https://api.anthropic.com/v1/messages',
+            '阿里云（通义千问）': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+            '月之暗面（Kimi）': 'https://api.moonshot.cn/v1/chat/completions',
+            '字节跳动（豆包）': 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+            '腾讯（混元）': 'https://api.lkeap.cloud.tencent.com/v1/chat/completions',
+            '本地模型': 'http://localhost:1234/v1/chat/completions'
         }
 
     def update_model_config(self, model_config):
@@ -164,4 +167,25 @@ class Config:
     def update_api_config(self, api_config):
         """更新API配置"""
         self.config['api'] = api_config
+        self.save_config()
+
+    def get_templates_config(self):
+        """获取模板相关配置（文案模板/图片模板等）。"""
+        return self.config.get(
+            'templates',
+            {
+                # 系统图片模板目录（可指向 x-auto-publisher 的目录，或导入后的本地目录）
+                'system_templates_dir': '',
+                # 默认内容模板包（如 content_clean_blue）
+                'default_content_pack': '',
+                # 首页默认封面模板（showcase_*.png 的 stem，比如 showcase_social_quote_card_vibrant）
+                'selected_cover_template_id': '',
+                # 仅用于展示
+                'selected_cover_template_display': '',
+            },
+        )
+
+    def update_templates_config(self, templates_config):
+        """更新模板相关配置"""
+        self.config['templates'] = templates_config or {}
         self.save_config()

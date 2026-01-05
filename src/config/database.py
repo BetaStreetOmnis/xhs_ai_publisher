@@ -1,12 +1,11 @@
 import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from typing import Generator
 
-# 数据库基类
-Base = declarative_base()
+# 使用统一的模型 Base（避免出现创建表/查询表不一致）
+from src.core.models import Base
 
 class DatabaseManager:
     """数据库管理器"""

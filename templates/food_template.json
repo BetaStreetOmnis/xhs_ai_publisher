@@ -1,0 +1,30 @@
+{
+  "name": "美食模板",
+  "size": [1080, 1080],
+  "bg_color": "#FFF8E1",
+  "text_config": {
+    "main_title_pos": [70, 140],
+    "main_title_size": 82,
+    "main_title_color": "#FF6F00",
+    "subtitle_pos": [70, 255],
+    "subtitle_size": 38,
+    "subtitle_color": "#6D4C41"
+  },
+  "tag_config": {
+    "start_y": 820,
+    "height": 46,
+    "margin": 12
+  },
+  "emoji_config": {
+    "position": [880, 95],
+    "size": 70
+  },
+  "decorations": [
+    {
+      "type": "line",
+      "points": [[70, 215], [1010, 215]],
+      "color": "#FF6F00",
+      "width": 3
+    }
+  ]
+}

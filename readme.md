@@ -43,7 +43,10 @@
 ### 🤖 AI智能生成
 - 🎯 **智能标题**: AI生成吸引人的标题
 - 📝 **内容创作**: 基于主题自动生成文章
+- 🔧 **自定义模型**: 支持配置 OpenAI 兼容/Claude/Ollama 等接口用于内容生成（未配置则回退到内置方案）
+- 🧩 **文案模板**: 支持选择不同风格的提示词模板（`templates/prompts/*.json`），可自行扩展
 - 🖼️ **图片处理**: 智能匹配和处理图片
+- 🎨 **AI封面生成（实验）**: 已实现（详见 `AI_COVER_GUIDE.md`），当前版本暂未在主界面开放入口
 - 🏷️ **标签推荐**: 自动推荐热门标签
 
 </td>
@@ -61,16 +64,16 @@
 <td width="50%">
 
 ### 👥 用户管理
-- 🔄 **多账户**: 支持多个小红书账户管理
-- 🌐 **代理配置**: 支持代理服务器配置
-- 🔍 **浏览器指纹**: 防检测浏览器指纹
-- 📊 **数据统计**: 发布数据统计分析
+- 🔄 **多账户/用户管理**: 支持新增/切换/删除用户；登录态与数据按用户隔离
+- 🌐 **代理配置**: 基于“浏览器环境”的默认项，已应用到发布会话（Playwright proxy）
+- 🔍 **浏览器指纹**: 已应用到发布会话（UA/viewport/locale/timezone/geolocation 等）；更深层 WebGL/canvas 仍在完善
+- 📊 **数据统计**: 已有基础统计（任务/内容/会话等），发布效果分析待完善
 
 </td>
 <td width="50%">
 
 ### 🛡️ 安全稳定
-- 🔐 **数据加密**: 本地数据安全加密存储
+- 🔐 **数据加密**: 模型 API Key 默认本地加密存储（`~/.xhs_system/keys.enc`）
 - 🛡️ **反检测**: 先进的反检测技术
 - 📝 **日志记录**: 完整的操作日志记录
 - 🔄 **错误恢复**: 智能错误处理和恢复
@@ -85,23 +88,31 @@
 
 ```
 📦 xhs_ai_publisher/
+├── 📂 assets/                       # 🧩 内置系统模板预览（可选）
+├── 📂 templates/                    # 🧩 文案/封面模板（可自行扩展）
+├── 🧰 install.sh                    # 📦 一键安装（macOS/Linux）
+├── 🧰 install.bat                   # 📦 一键安装（Windows）
 ├── 📂 src/                          # 🔧 源代码目录
 │   ├── 📂 core/                     # ⚡ 核心功能模块
 │   │   ├── 📂 models/               # 🗄️ 数据模型
 │   │   ├── 📂 services/             # 🔧 业务服务层
 │   │   ├── 📂 pages/                # 🎨 界面页面
-│   │   ├── 📂 browser/              # 🌐 浏览器自动化
-│   │   └── 📂 utils/                # 🛠️ 工具函数
+│   │   ├── 📂 processor/            # 🧩 内容/图片处理
+│   │   ├── 📂 scheduler/            # ⏰ 定时任务（当前为模拟）
+│   │   └── 📂 ai_integration/       # 🤖 AI适配（实验）
 │   ├── 📂 web/                      # 🌐 Web接口
 │   │   ├── 📂 templates/            # 📄 HTML模板
 │   │   └── 📂 static/               # 🎨 静态资源
 │   └── 📂 logger/                   # 📝 日志系统
-├── 📂 ai_publish_google_shop/       # 🏪 Chrome扩展
-├── 📂 test/                         # 🧪 测试目录
-├── 📂 build/                        # 📦 构建输出
+├── 📂 images/                       # 🖼️ 文档/界面截图资源
+├── 📂 tests/                        # 🧪 测试目录
+├── 📂 venv/                         # 🐍 本地虚拟环境（已在 .gitignore，不会上传 GitHub）
 ├── 🐍 main.py                       # 🚀 主程序入口
+├── 🚀 启动程序.sh                   # ▶️ 启动脚本（macOS/Linux）
+├── 🚀 启动程序.bat                  # ▶️ 启动脚本（Windows）
+├── ⚙️ .env.example                  # 🔑 环境变量示例（不要提交真实 .env）
 ├── 📋 requirements.txt              # 📦 依赖包列表
-└── 📖 README.md                     # 📚 项目说明
+└── 📖 readme.md                     # 📚 项目说明
 ```
 
 ---
@@ -121,119 +132,61 @@
 
 </div>
 
+> Windows 建议使用 **Python 3.11/3.12（64 位）**；Python 3.13 或 32 位 Python 常见会导致 **PyQt5 安装失败**。
+
 ### 🚀 安装方式
 
 #### 🎯 一键安装（推荐）
 
-根据您的操作系统选择对应的安装脚本：
-
-<div align="center">
-
 | 操作系统 | 安装脚本 | 启动脚本 |
 |:---:|:---:|:---:|
-| 🍎 **macOS** | `./install_mac.sh` | `./启动程序.sh` |
-| 🐧 **Linux** | `./install.sh` | `./启动程序.sh` |
-| 💻 **Windows** | `install.bat` | `启动程序.bat` |
-
-</div>
-
-<details>
-<summary>🍎 <strong>macOS 安装</strong></summary>
+| macOS / Linux | `./install.sh` | `./启动程序.sh` |
+| Windows | `install.bat` | `启动程序.bat` |
 
 ```bash
-# 1️⃣ 克隆项目
-git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
-cd xhs_ai_publisher
-
-# 2️⃣ 运行安装脚本
-./install_mac.sh
-
-# 3️⃣ 启动程序
-./启动程序.sh
-```
-
-**特性：**
-- ✅ 自动检测和安装Python环境
-- ✅ 自动安装Homebrew（如需要）
-- ✅ 支持Apple Silicon和Intel芯片
-- ✅ 完整的依赖管理和虚拟环境配置
-
-</details>
-
-<details>
-<summary>🐧 <strong>Linux 安装</strong></summary>
-
-```bash
-# 1️⃣ 克隆项目
-git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
-cd xhs_ai_publisher
-
-# 2️⃣ 运行安装脚本
+# macOS/Linux
+chmod +x install.sh 启动程序.sh
 ./install.sh
-
-# 3️⃣ 启动程序
 ./启动程序.sh
 ```
 
-**支持的发行版：**
-- ✅ Ubuntu/Debian 系列
-- ✅ RHEL/CentOS/Rocky Linux
-- ✅ Fedora
-- ✅ openSUSE/SLES
-- ✅ Arch Linux/Manjaro
-
-</details>
-
-<details>
-<summary>💻 <strong>Windows 安装</strong></summary>
-
-```cmd
-# 1️⃣ 克隆项目
-git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
-cd xhs_ai_publisher
-
-# 2️⃣ 运行安装脚本
+```bat
+:: Windows
 install.bat
-
-# 3️⃣ 启动程序
 启动程序.bat
 ```
 
-**系统要求：**
-- ✅ Windows 10/11
-- ✅ 自动安装Python（如需要）
-- ✅ 完整的依赖管理
+> 默认会检测 Playwright 浏览器并在缺失时自动安装；可用参数：
+> - 强制安装：`./install.sh --with-browser` / `install.bat --with-browser`
+> - 跳过浏览器：`./install.sh --skip-browser` / `install.bat --skip-browser`
 
-</details>
-
-<details>
-<summary>📥 <strong>手动安装（高级用户）</strong></summary>
+#### 📥 手动安装（高级用户）
 
 ```bash
-# 1️⃣ 克隆项目
-git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
-cd xhs_ai_publisher
-
-# 2️⃣ 创建虚拟环境
+# 1️⃣ 创建虚拟环境
 python -m venv venv
 
-# 3️⃣ 激活虚拟环境
-# Linux/Mac:
+# 2️⃣ 激活虚拟环境（macOS/Linux）
 source venv/bin/activate
-# Windows:
-venv\Scripts\activate
 
-# 4️⃣ 安装依赖
+# 3️⃣ 安装依赖
 pip install -r requirements.txt
 
-# 5️⃣ 初始化数据库（可选）
-python init_db.py
+# 4️⃣ （可选）安装 Playwright Chromium
+PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright install chromium
 
-# 6️⃣ 启动程序
-python main.py
+# 5️⃣ 启动程序（首次启动会自动初始化数据库）
+./启动程序.sh
 ```
 
-</details>
+提示：
+- 运行数据默认存放于 `~/.xhs_system/`（数据库、日志、浏览器缓存等）
+- `venv/` 已在 `.gitignore`，不会被提交或上传
+
+常见问题：
+- Windows 安装失败（多为 PyQt5）：请用 Python 3.11/3.12（64 位），避免 Python 3.13 或 32 位 Python
+- Linux 浏览器启动失败：可能缺少系统依赖，执行 `sudo python -m playwright install-deps chromium`（或对应发行版命令）
+- `qt.qpa.fonts ... Microsoft YaHei`：Qt 的字体告警，可忽略；当前版本已改为自动选择系统可用字体
 
 ---
 
@@ -264,33 +217,45 @@ flowchart LR
 ### 📝 详细步骤
 
 1. **🚀 启动程序**
-   - 运行 `python main.py` 或双击可执行文件
+   - 运行 `./启动程序.sh` 或 `python main.py`
    - 等待程序加载完成
+	
+2. **👥 用户管理（可选）**
+   - 侧边栏「👥」支持新增/切换/删除用户
+   - 登录态、浏览器环境、cookie/token 等数据按用户隔离
 
-2. **👤 用户管理**
-   - 点击"用户管理"按钮
-   - 添加新用户或切换现有用户
-   - 配置代理和浏览器指纹（可选）
+3. **🌐 浏览器环境（可选）**
+   - 侧边栏「🌐」创建环境，并可设置“⭐ 默认环境”
+   - 默认环境的代理/基础指纹会应用到发布会话（UA/viewport/locale/timezone/geolocation 等）
 
-3. **📱 账户登录**
+4. **📱 账户登录**
    - 输入手机号码
    - 接收并输入验证码
    - 系统自动保存登录状态
 
-4. **✍️ 内容创作**
+5. **✍️ 内容创作**
    - 在主题输入框输入创作主题
    - 点击"生成内容"按钮
    - AI自动生成标题和内容
 
-5. **🖼️ 图片处理**
+6. **🖼️ 图片处理**
    - 系统自动匹配相关图片
    - 可手动上传自定义图片
    - 支持多图片批量处理
 
-6. **👀 预览发布**
+7. **👀 预览发布**
    - 点击"预览发布"查看效果
    - 确认内容无误后点击发布
    - 支持定时发布功能
+
+---
+
+## 🤖 自定义模型与模板
+
+- 入口：侧边栏「⚙️ 后台配置」→「AI模型配置」
+- API Key：保存时默认加密写入 `~/.xhs_system/keys.enc`（`settings.json` 不再明文保存）
+- 文案模板：在「文案模板」下拉框选择；模板文件位于 `templates/prompts/`
+- 远程工作流：默认已关闭，仅使用本地配置的模型或内置回退生成
 
 
 
@@ -328,6 +293,8 @@ PUBLISH_CONFIG = {
 
 ### 🌐 代理配置
 
+> 当前版本代理/指纹管理功能正在完善，尚未稳定接入发布会话流程。
+
 支持多种代理类型:
 - 🔗 **HTTP代理**
 - 🔒 **HTTPS代理** 
@@ -345,8 +312,8 @@ PUBLISH_CONFIG = {
 </div>
 
 - [x] ✅ **基础功能**: 内容生成和发布
-- [x] ✅ **用户管理**: 多账户支持
-- [x] ✅ **代理配置**: 网络代理支持
+- [ ] 🔄 **用户管理**: 多账户支持（UI入口待完善）
+- [ ] 🔄 **代理/指纹**: 配置管理与发布会话接入
 - [ ] 🔄 **内容库**: 素材管理系统
 - [ ] 🔄 **模板库**: 预设模板系统
 - [ ] 🔄 **数据分析**: 发布效果分析

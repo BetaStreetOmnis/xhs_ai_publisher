@@ -1,9 +1,11 @@
 import sys
+import shutil
+import time
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPixmap
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QColor, QPixmap, QDesktopServices
 from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QLabel, QLineEdit,
-                             QPushButton, QTextEdit, QVBoxLayout, QWidget, QMessageBox)
+                             QPushButton, QTextEdit, QVBoxLayout, QWidget, QMessageBox, QComboBox, QFileDialog)
 
 import os
 from src.core.alert import TipWindow
@@ -22,7 +24,7 @@ class HomePage(QWidget):
         self.image_list = []
         self.current_image_index = 0
         # 创建占位图
-        self.placeholder_photo = QPixmap(200, 200)
+        self.placeholder_photo = QPixmap(360, 480)
         self.placeholder_photo.fill(QColor('#f8f9fa'))
 
     def setup_ui(self):
@@ -257,6 +259,31 @@ class HomePage(QWidget):
         input_container_layout.setContentsMargins(0, 0, 0, 0)
         input_container_layout.setSpacing(0)
 
+        # 热点选择（来自数据中心缓存 / 一键跳转数据中心）
+        hotspot_row = QHBoxLayout()
+        hotspot_row.setContentsMargins(0, 0, 0, 8)
+        hotspot_row.setSpacing(8)
+
+        hotspot_row.addWidget(QLabel("🔥 热点:"))
+        self.hotspot_combo = QComboBox()
+        self.hotspot_combo.setMinimumWidth(260)
+        self.hotspot_combo.currentIndexChanged.connect(self.on_hotspot_selected)
+        hotspot_row.addWidget(self.hotspot_combo, 1)
+
+        refresh_hot_btn = QPushButton("🔄")
+        refresh_hot_btn.setToolTip("从缓存刷新热点列表")
+        refresh_hot_btn.setFixedWidth(46)
+        refresh_hot_btn.clicked.connect(self.refresh_hotspot_options)
+        hotspot_row.addWidget(refresh_hot_btn)
+
+        open_hot_btn = QPushButton("📊")
+        open_hot_btn.setToolTip("打开数据中心查看热榜")
+        open_hot_btn.setFixedWidth(46)
+        open_hot_btn.clicked.connect(self.open_data_center)
+        hotspot_row.addWidget(open_hot_btn)
+
+        input_container_layout.addLayout(hotspot_row)
+
         # 添加输入框
         self.input_text = QTextEdit()
         self.input_text.setMinimumHeight(120)
@@ -273,10 +300,15 @@ class HomePage(QWidget):
         self.generate_btn = QPushButton("✨ 生成内容")
         self.generate_btn.clicked.connect(self.generate_content)
         button_layout.addWidget(self.generate_btn)
-        
 
         input_container_layout.addLayout(button_layout)
         input_layout.addWidget(input_container)
+
+        # 初次加载热点（不阻塞网络：只读取缓存；刷新请去数据中心）
+        try:
+            self.refresh_hotspot_options()
+        except Exception:
+            pass
 
         # 添加到主布局
         left_layout.addWidget(title_frame)
@@ -330,6 +362,31 @@ class HomePage(QWidget):
             "font-size: 13pt; font-weight: bold; color: #2c3e50; padding-bottom: 5px;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
+
+        # 跳转到封面模板库
+        template_btn = QPushButton("🧩 封面模板")
+        template_btn.setToolTip("打开封面中心的模板库")
+        template_btn.setFixedHeight(32)
+        template_btn.setStyleSheet("""
+            QPushButton {
+                padding: 6px 10px;
+                border-radius: 10px;
+                background-color: #f3f4f6;
+                color: #111827;
+                font-size: 10.5pt;
+            }
+            QPushButton:hover { background-color: #e5e7eb; }
+        """)
+        template_btn.clicked.connect(self.open_cover_template_library)
+        header_layout.addWidget(template_btn)
+
+        # 图片下载
+        download_btn = QPushButton("📥 下载图片")
+        download_btn.setToolTip("将封面和内容图片保存到本地")
+        download_btn.setFixedHeight(32)
+        download_btn.setStyleSheet(template_btn.styleSheet())
+        download_btn.clicked.connect(self.download_images)
+        header_layout.addWidget(download_btn)
         preview_layout.addLayout(header_layout)
 
         # 图片预览区域（包含左右按钮）
@@ -345,7 +402,7 @@ class HomePage(QWidget):
 
         # 图片容器
         image_container = QWidget()
-        image_container.setFixedSize(380, 380)
+        image_container.setFixedSize(380, 520)
         image_container.setStyleSheet("""
             background-color: white;
             border: 2px solid #e1e4e8;
@@ -358,7 +415,7 @@ class HomePage(QWidget):
         # 图片标签
         self.image_label = QLabel()
         self.image_label.setAlignment(Qt.AlignCenter)
-        self.image_label.setMinimumSize(360, 360)
+        self.image_label.setMinimumSize(360, 480)
         self.image_label.setStyleSheet("border: none;")
         image_container_layout.addWidget(self.image_label)
 
@@ -413,6 +470,144 @@ class HomePage(QWidget):
         self.next_btn.setEnabled(False)
 
         parent_layout.addWidget(preview_frame)
+
+    def open_cover_template_library(self):
+        """从首页跳转到封面模板库。"""
+        try:
+            if not self.parent:
+                return
+
+            # 切换到“封面中心”页面（main.py 中固定为 index=4）
+            if hasattr(self.parent, "switch_page"):
+                self.parent.switch_page(4)
+
+            cover_page = getattr(self.parent, "cover_page", None)
+            if cover_page and hasattr(cover_page, "show_template_library"):
+                cover_page.show_template_library()
+        except Exception as e:
+            TipWindow(self.parent, f"❌ 打开模板库失败: {str(e)}").show()
+
+    def download_images(self):
+        """将当前生成的封面/内容图片导出到本地目录。"""
+        try:
+            if not getattr(self, "images", None):
+                TipWindow(self.parent, "❌ 暂无图片可下载，请先生成内容").show()
+                return
+
+            desktop_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+            if not os.path.isdir(desktop_dir):
+                desktop_dir = os.path.expanduser("~")
+
+            base_dir = QFileDialog.getExistingDirectory(self, "选择保存目录", desktop_dir)
+            if not base_dir:
+                return
+
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            out_dir = os.path.join(base_dir, f"xhs_images_{ts}")
+            os.makedirs(out_dir, exist_ok=True)
+
+            saved = 0
+            for idx, src in enumerate(self.images):
+                if not src or not os.path.isfile(src):
+                    continue
+                ext = os.path.splitext(src)[1].lower() or ".jpg"
+                if idx == 0:
+                    name = f"cover{ext}"
+                else:
+                    name = f"content_{idx}{ext}"
+                dst = os.path.join(out_dir, name)
+                shutil.copy2(src, dst)
+                saved += 1
+
+            if saved <= 0:
+                TipWindow(self.parent, "❌ 保存失败：未找到可用图片文件").show()
+                return
+
+            # 打开目录方便用户查看
+            try:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(out_dir))
+            except Exception:
+                pass
+
+            TipWindow(self.parent, f"✅ 已保存 {saved} 张图片到：{out_dir}").show()
+        except Exception as e:
+            TipWindow(self.parent, f"❌ 下载图片失败: {str(e)}").show()
+
+    def open_data_center(self):
+        """从首页跳转到数据中心（热榜）。"""
+        try:
+            if not self.parent:
+                return
+            if hasattr(self.parent, "switch_page"):
+                self.parent.switch_page(5)
+
+            data_page = getattr(self.parent, "data_center_page", None)
+            if data_page and hasattr(data_page, "refresh"):
+                # 静默刷新，避免频繁弹窗
+                data_page.refresh(silent=True)
+        except Exception as e:
+            TipWindow(self.parent, f"❌ 打开数据中心失败: {str(e)}").show()
+
+    def refresh_hotspot_options(self):
+        """从缓存加载热点到下拉框（不主动联网）。"""
+        if not hasattr(self, "hotspot_combo") or self.hotspot_combo is None:
+            return
+
+        titles = []
+        try:
+            from src.core.services.hotspot_service import hotspot_service
+
+            cached = hotspot_service.load_cache()
+            data = (cached or {}).get("data") if isinstance(cached, dict) else {}
+            if not isinstance(data, dict):
+                data = {}
+
+            seen = set()
+            for sid, _name in hotspot_service.available_sources().items():
+                raw_items = data.get(sid) or []
+                if not isinstance(raw_items, list):
+                    continue
+                for it in raw_items[:10]:
+                    if not isinstance(it, dict):
+                        continue
+                    t = str(it.get("title") or "").strip()
+                    if not t:
+                        continue
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    titles.append(t)
+                    if len(titles) >= 30:
+                        break
+                if len(titles) >= 30:
+                    break
+        except Exception:
+            titles = []
+
+        self.hotspot_combo.blockSignals(True)
+        self.hotspot_combo.clear()
+        if titles:
+            self.hotspot_combo.addItem("（选择热点填入主题）", "")
+            for t in titles:
+                self.hotspot_combo.addItem(t, t)
+        else:
+            self.hotspot_combo.addItem("（暂无热点：去📊数据中心刷新）", "")
+        self.hotspot_combo.setCurrentIndex(0)
+        self.hotspot_combo.blockSignals(False)
+
+    def on_hotspot_selected(self, _index: int):
+        """将选中的热点填入内容输入框。"""
+        try:
+            if not hasattr(self, "hotspot_combo") or self.hotspot_combo is None:
+                return
+            value = self.hotspot_combo.currentData()
+            title = str(value or "").strip()
+            if not title:
+                return
+            if hasattr(self, "input_text") and self.input_text is not None:
+                self.input_text.setPlainText(title)
+        except Exception:
+            pass
 
     def login(self):
         try:
@@ -472,20 +667,33 @@ class HomePage(QWidget):
             TipWindow(self.parent, f"❌ 生成内容失败: {str(e)}").show()
 
     def handle_generation_result(self, result):
+        try:
+            info_reason = (result or {}).get("info_reason") if isinstance(result, dict) else ""
+            if info_reason:
+                TipWindow(self.parent, f"ℹ️ {info_reason}").show()
+        except Exception:
+            pass
+
         self.update_ui_after_generate(
             result['title'],
             result['content'],
             result['cover_image'],
             result['content_images'],
-            result['input_text']
+            result['input_text'],
+            result.get('content_pages') if isinstance(result, dict) else None,
         )
 
     def handle_generation_error(self, error_message):
         """处理生成错误，提供用户友好的错误信息和解决建议"""
         print(f"错误信息: {error_message}")
-        
+
         # 根据错误类型提供具体的用户友好提示
-        if "主API和备用生成器都失败了" in error_message:
+        if "远程工作流执行失败" in error_message or "Workflow code node function execution failed" in error_message:
+            user_message = (
+                "❌ 默认接口生成失败\n\n"
+                "远程工作流执行失败，请检查工作流代码或在 debug_url 中查看详情。\n"
+            )
+        elif "主API和备用生成器都失败了" in error_message:
             user_message = (
                 "❌ 内容生成失败\n\n"
                 "主API服务和本地备用生成器都遇到了问题。\n\n"
@@ -503,7 +711,6 @@ class HomePage(QWidget):
                 "• 检查网络连接是否正常\n"
                 "• 确认防火墙设置允许应用访问网络\n"
                 "• 尝试切换网络环境\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "API请求超时" in error_message:
             user_message = (
@@ -513,7 +720,6 @@ class HomePage(QWidget):
                 "• 检查网络速度\n"
                 "• 尝试减少输入内容的长度\n"
                 "• 稍后重试\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "状态码: 404" in error_message:
             user_message = (
@@ -522,7 +728,6 @@ class HomePage(QWidget):
                 "解决方案：\n"
                 "• 检查应用是否为最新版本\n"
                 "• 联系技术支持获取帮助\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "状态码: 500" in error_message:
             user_message = (
@@ -531,7 +736,6 @@ class HomePage(QWidget):
                 "解决方案：\n"
                 "• 稍后重试，问题可能是临时的\n"
                 "• 如果问题持续，请联系技术支持\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "状态码: 400" in error_message:
             user_message = (
@@ -541,7 +745,6 @@ class HomePage(QWidget):
                 "• 检查输入内容是否包含特殊字符\n"
                 "• 尝试简化输入内容\n"
                 "• 确保应用为最新版本\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "JSON解析失败" in error_message:
             user_message = (
@@ -550,7 +753,6 @@ class HomePage(QWidget):
                 "解决方案：\n"
                 "• 重试操作\n"
                 "• 如果问题持续，请联系技术支持\n"
-                "• 系统将自动尝试使用备用生成器"
             )
         elif "备用生成器" in error_message and "失败" in error_message:
             user_message = (
@@ -570,21 +772,59 @@ class HomePage(QWidget):
                 "• 检查输入内容格式\n"
                 "• 重试操作\n"
                 "• 如果问题持续，请联系技术支持\n"
-                "• 系统已尝试多种生成方式"
             )
+
+        # 附加错误详情（避免“回退生成”导致误判）
+        try:
+            detail = str(error_message or "").strip()
+            if len(detail) > 600:
+                detail = detail[:600] + "..."
+            if detail:
+                user_message = user_message.rstrip() + "\n\n错误详情：\n" + detail
+        except Exception:
+            pass
         
         # 显示用户友好的错误消息
         QMessageBox.warning(self, "内容生成失败", user_message)
 
-    def update_ui_after_generate(self, title, content, cover_image_url, content_image_urls, input_text):
+    def update_ui_after_generate(self, title, content, cover_image_url, content_image_urls, input_text, content_pages=None):
         try:
+            # 若用户已在“封面模板库”选择了模板，则用同一模板生成封面 + 内容页
+            try:
+                from src.config.config import Config
+                from src.core.services.system_image_template_service import system_image_template_service
+
+                tpl_id = (Config().get_templates_config().get("selected_cover_template_id") or "").strip()
+                if tpl_id:
+                    showcase_dir = system_image_template_service.resolve_showcase_dir()
+                    bg_path = None
+                    if showcase_dir:
+                        candidate = showcase_dir / f"{tpl_id}.png"
+                        if candidate.exists():
+                            bg_path = str(candidate)
+
+                    if bg_path and os.path.exists(bg_path):
+                        # 页数优先取文案分页（大模型/默认服务返回 list / content_pages）
+                        page_count = 3
+                        if isinstance(content_pages, (list, tuple)) and content_pages:
+                            page_count = max(1, len(content_pages))
+
+                        generated = system_image_template_service.generate_post_images(
+                            title=title or "",
+                            content=content or "",
+                            content_pages=content_pages if isinstance(content_pages, (list, tuple)) else None,
+                            page_count=page_count,
+                            cover_bg_image_path=bg_path,
+                        )
+                        if generated:
+                            cover_image_url, content_image_urls = generated
+            except Exception as e:
+                print(f"⚠️ 使用封面模板生成封面失败，已回退原封面: {e}")
+
             # 创建并启动图片处理线程
-            self.parent.image_processor = ImageProcessorThread(
-                cover_image_url, content_image_urls)
-            self.parent.image_processor.finished.connect(
-                self.handle_image_processing_result)
-            self.parent.image_processor.error.connect(
-                self.handle_image_processing_error)
+            self.parent.image_processor = ImageProcessorThread(cover_image_url, content_image_urls)
+            self.parent.image_processor.finished.connect(self.handle_image_processing_result)
+            self.parent.image_processor.error.connect(self.handle_image_processing_error)
             self.parent.image_processor.start()
 
             # 更新标题和内容
@@ -593,8 +833,7 @@ class HomePage(QWidget):
 
             # 安全地更新文本编辑器内容
             if input_text:
-                self.input_text.clear()  # 先清空内容
-                # 使用setPlainText而不是setText
+                self.input_text.clear()
                 self.input_text.setPlainText(input_text)
             else:
                 self.input_text.clear()

@@ -15,6 +15,9 @@ class ImageProcessorThread(QThread):
     finished = pyqtSignal(list, list)  # 发送图片路径列表和图片信息列表
     error = pyqtSignal(str)
 
+    PREVIEW_WIDTH = 360
+    PREVIEW_HEIGHT = 480
+
     def __init__(self, cover_image_url, content_image_urls):
         super().__init__()
         self.cover_image_url = cover_image_url
@@ -70,51 +73,58 @@ class ImageProcessorThread(QThread):
         retries = 3
         while retries > 0:
             try:
-                # 添加SSL验证跳过和更长的超时时间
-                response = requests.get(url, verify=False, timeout=30)
-                if response.status_code == 200:
-                    # 保存图片
-                    img_path = os.path.join(self.img_dir, f'{title}.jpg')
-                    os.makedirs(os.path.dirname(img_path), exist_ok=True)
-
-                    # 保存原始图片
-                    with open(img_path, 'wb') as f:
-                        f.write(response.content)
-
-                    # 处理图片预览
-                    image = Image.open(io.BytesIO(response.content))
-
-                    # 计算缩放比例，保持宽高比
-                    width, height = image.size
-                    max_size = 360  # 调整预览图片的最大尺寸
-                    scale = min(max_size/width, max_size/height)
-                    new_width = int(width * scale)
-                    new_height = int(height * scale)
-
-                    # 缩放图片
-                    image = image.resize((new_width, new_height), Image.LANCZOS)
-
-                    # 创建白色背景
-                    background = Image.new('RGB', (max_size, max_size), 'white')
-                    # 将图片粘贴到中心位置
-                    offset = ((max_size - new_width) // 2,
-                              (max_size - new_height) // 2)
-                    background.paste(image, offset)
-
-                    # 转换为QPixmap
-                    img_bytes = io.BytesIO()
-                    background.save(img_bytes, format='PNG')
-                    img_data = img_bytes.getvalue()
-
-                    qimage = QImage.fromData(img_data)
-                    pixmap = QPixmap.fromImage(qimage)
-
-                    if pixmap.isNull():
-                        raise Exception("无法创建有效的图片预览")
-
-                    return img_path, {'pixmap': pixmap, 'title': title}
+                local_path = self._resolve_local_path(url)
+                if local_path:
+                    with open(local_path, 'rb') as f:
+                        content = f.read()
                 else:
-                    raise Exception(f"下载图片失败: HTTP {response.status_code}")
+                    # 添加SSL验证跳过和更长的超时时间
+                    response = requests.get(url, verify=False, timeout=30)
+                    if response.status_code != 200:
+                        raise Exception(f"下载图片失败: HTTP {response.status_code}")
+                    content = response.content
+
+                # 保存图片（尽量保持真实格式，避免 PNG 内容写成 .jpg）
+                ext = self._guess_image_extension(local_path, content)
+                img_path = os.path.join(self.img_dir, f'{title}{ext}')
+                os.makedirs(os.path.dirname(img_path), exist_ok=True)
+
+                # 保存原始图片（保持现有行为：覆盖同名文件）
+                with open(img_path, 'wb') as f:
+                    f.write(content)
+
+                # 处理图片预览
+                image = Image.open(io.BytesIO(content))
+
+                # 计算缩放比例，保持宽高比
+                width, height = image.size
+                target_w = self.PREVIEW_WIDTH
+                target_h = self.PREVIEW_HEIGHT
+                scale = min(target_w / width, target_h / height)
+                new_width = int(width * scale)
+                new_height = int(height * scale)
+
+                # 缩放图片
+                image = image.resize((new_width, new_height), Image.LANCZOS)
+
+                # 创建白色背景
+                background = Image.new('RGB', (target_w, target_h), 'white')
+                # 将图片粘贴到中心位置
+                offset = ((target_w - new_width) // 2, (target_h - new_height) // 2)
+                background.paste(image, offset)
+
+                # 转换为QPixmap
+                img_bytes = io.BytesIO()
+                background.save(img_bytes, format='PNG')
+                img_data = img_bytes.getvalue()
+
+                qimage = QImage.fromData(img_data)
+                pixmap = QPixmap.fromImage(qimage)
+
+                if pixmap.isNull():
+                    raise Exception("无法创建有效的图片预览")
+
+                return img_path, {'pixmap': pixmap, 'title': title}
 
             except Exception as e:
                 retries -= 1
@@ -124,3 +134,41 @@ class ImageProcessorThread(QThread):
                 else:
                     print(f"处理图片失败,重试次数已用完: {str(e)}")
                     return None, None
+
+    @staticmethod
+    def _guess_image_extension(local_path, content: bytes) -> str:
+        if isinstance(local_path, str) and local_path:
+            ext = os.path.splitext(local_path)[1].lower()
+            if ext in {".png", ".jpg", ".jpeg", ".bmp", ".webp"}:
+                return ext
+
+        if not isinstance(content, (bytes, bytearray)):
+            return ".jpg"
+
+        head = bytes(content[:16])
+        if head.startswith(b"\x89PNG\r\n\x1a\n"):
+            return ".png"
+        if head.startswith(b"\xff\xd8"):
+            return ".jpg"
+        if head.startswith(b"RIFF") and len(content) >= 12 and bytes(content[8:12]) == b"WEBP":
+            return ".webp"
+        return ".jpg"
+
+    def _resolve_local_path(self, url):
+        """支持直接传入本地图片路径（用于离线/本地生成图片）。"""
+        if not url:
+            return None
+
+        if not isinstance(url, str):
+            return None
+
+        if url.startswith("file://"):
+            candidate = url[len("file://"):]
+        else:
+            candidate = url
+
+        candidate = os.path.expanduser(candidate)
+        if os.path.exists(candidate) and os.path.isfile(candidate):
+            return candidate
+
+        return None

@@ -1,98 +1,163 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# 小红书AI发布助手 - 跨平台一键安装脚本
-# 支持 macOS、Linux 系统的通用安装解决方案
-
-set -e  # 遇到错误立即退出
-
-# 颜色定义
-RED='\033[91m'
-GREEN='\033[92m'
-YELLOW='\033[93m'
-BLUE='\033[94m'
-CYAN='\033[96m'
-BOLD='\033[1m'
-END='\033[0m'
-
-# 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# 打印横幅
-print_banner() {
-    echo -e "${CYAN}${BOLD}"
-    echo "╔══════════════════════════════════════════════════════════╗"
-    echo "║            🚀 小红书AI发布助手 - 一键安装              ║"
-    echo "║                                                          ║"
-    echo "║  🔍 自动检测系统环境                                     ║"
-    echo "║  📦 自动安装所需依赖                                     ║"
-    echo "║  🌟 跨平台支持 (macOS/Linux)                            ║"
-    echo "╚══════════════════════════════════════════════════════════╝"
-    echo -e "${END}"
-    echo ""
+usage() {
+  cat <<'EOF'
+Usage:
+  ./install.sh [--with-browser] [--skip-browser] [--recreate-venv]
+
+Options:
+  --with-browser    Force install Playwright Chromium (downloads ~100MB+)
+  --skip-browser    Skip Playwright browser check/install
+  --recreate-venv   Delete and recreate ./venv
+EOF
 }
 
-# 主函数
-main() {
-    print_banner
-    
-    # 检查项目文件
-    if [[ ! -f "main.py" ]]; then
-        echo -e "${RED}❌ 请在项目根目录中运行此脚本${END}"
-        echo "项目根目录应包含 main.py 文件"
-        exit 1
-    fi
-    
-    if [[ ! -f "deploy.py" ]]; then
-        echo -e "${RED}❌ 请在项目根目录中运行此脚本${END}"
-        echo "项目根目录应包含 deploy.py 文件"
-        exit 1
-    fi
-    
-    # 检测Python环境
-    echo -e "${BLUE}🔍 检测Python环境...${END}"
-    
-    # 查找Python命令
-    PYTHON_CMD=""
-    for cmd in python3 python python3.9 python3.10 python3.11 python3.12; do
-        if command -v "$cmd" &> /dev/null; then
-            version=$($cmd -c "import sys; print('.'.join(map(str, sys.version_info[:2])))" 2>/dev/null || echo "")
-            if [[ -n "$version" ]]; then
-                # 检查版本是否 >= 3.8
-                if [[ "$(printf '%s\n' "$version" "3.8" | sort -V | head -n1)" == "3.8" ]]; then
-                    PYTHON_CMD="$cmd"
-                    echo -e "${GREEN}✅ 找到Python: $cmd (版本 $version)${END}"
-                    break
-                fi
-            fi
-        fi
-    done
-    
-    if [[ -z "$PYTHON_CMD" ]]; then
-        echo -e "${RED}❌ 未找到合适的Python环境 (需要 >= 3.8)${END}"
-        echo -e "${BLUE}请先安装Python 3.8+：${END}"
-        echo "  macOS: brew install python@3.11"
-        echo "  Ubuntu/Debian: sudo apt install python3 python3-pip python3-venv"
-        echo "  CentOS/RHEL: sudo yum install python3 python3-pip"
-        exit 1
-    fi
-    
-    # 运行Python部署脚本
-    echo -e "${BLUE}🚀 启动Python部署脚本...${END}"
-    "$PYTHON_CMD" deploy.py
-    
-    if [[ $? -eq 0 ]]; then
-        echo ""
-        echo -e "${GREEN}${BOLD}🎉 安装完成！${END}"
-        echo -e "${BLUE}💡 启动程序: ${CYAN}./启动程序.sh${END}"
-    else
-        echo -e "${RED}❌ 安装过程中出现错误${END}"
-        exit 1
-    fi
+WITH_BROWSER=0
+SKIP_BROWSER=0
+RECREATE_VENV=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --with-browser) WITH_BROWSER=1 ;;
+    --skip-browser) SKIP_BROWSER=1 ;;
+    --recreate-venv) RECREATE_VENV=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "❌ Unknown argument: $arg"
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+if [[ ! -f "requirements.txt" ]] || [[ ! -f "main.py" ]]; then
+  echo "❌ Please run this script in the project root (needs requirements.txt + main.py)."
+  exit 1
+fi
+
+check_python_version() {
+  "$1" -c 'import sys; raise SystemExit(0 if (3,8) <= sys.version_info[:2] < (3,13) else 1)' >/dev/null 2>&1
 }
 
-# 错误处理
-trap 'echo -e "${RED}❌ 安装过程中出现错误${END}"; exit 1' ERR
+choose_python() {
+  for cmd in python3 python; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      if check_python_version "$cmd"; then
+        echo "$cmd"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
 
-# 运行主函数
-main "$@"
+if [[ "$RECREATE_VENV" == "1" ]] && [[ -d "venv" ]]; then
+  echo "🗑️  Removing existing venv/ ..."
+  rm -rf venv
+fi
+
+VENV_PY="venv/bin/python"
+if [[ -x "$VENV_PY" ]]; then
+  if ! check_python_version "$VENV_PY"; then
+    echo "❌ Existing venv uses unsupported Python version: $("$VENV_PY" -V 2>&1)"
+    echo "💡 Please recreate venv with Python 3.11/3.12:"
+    echo "   ./install.sh --recreate-venv"
+    exit 1
+  fi
+else
+  PYTHON_CMD="$(choose_python || true)"
+  if [[ -z "${PYTHON_CMD:-}" ]]; then
+    echo "❌ Python 3.8–3.12 not found. Please install Python 3.11/3.12 (recommended) then re-run."
+    exit 1
+  fi
+
+  echo "✅ Using Python: $PYTHON_CMD ($($PYTHON_CMD -V 2>&1))"
+
+  echo "🐍 Creating venv/ ..."
+  "$PYTHON_CMD" -m venv venv
+fi
+
+echo "✅ Using venv: $VENV_PY ($($VENV_PY -V 2>&1))"
+export PYTHONUTF8=1
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.xhs_system/ms-playwright}"
+PIP_ARGS=(--timeout 120 --retries 3 --prefer-binary)
+
+echo "📦 Upgrading pip ..."
+"$VENV_PY" -m pip install --upgrade pip setuptools wheel "${PIP_ARGS[@]}" || true
+
+echo "📦 Installing dependencies ..."
+"$VENV_PY" -m pip install -r requirements.txt "${PIP_ARGS[@]}"
+
+echo "✅ Verifying imports ..."
+"$VENV_PY" -c "import PyQt5; import sqlalchemy; import playwright; print('ok')"
+
+check_playwright() {
+  "$VENV_PY" - <<'PY'
+import sys
+
+try:
+    from playwright.sync_api import sync_playwright
+except Exception:
+    sys.exit(1)
+
+def main() -> int:
+    with sync_playwright() as p:
+        try:
+            browser = p.chromium.launch(headless=True, timeout=30_000)
+            browser.close()
+            return 0
+        except Exception as e:
+            msg = str(e)
+            if "Executable doesn't exist" not in msg and "not found" not in msg.lower() and "找不到" not in msg:
+                return 1
+
+        for channel in ("chrome", "msedge"):
+            try:
+                browser = p.chromium.launch(channel=channel, headless=True, timeout=30_000)
+                browser.close()
+                return 0
+            except Exception:
+                continue
+
+    return 2
+
+if __name__ == "__main__":
+    sys.exit(main())
+PY
+}
+
+if [[ "$SKIP_BROWSER" == "1" ]]; then
+  :
+elif [[ "$WITH_BROWSER" == "1" ]]; then
+  echo "🌐 Installing Playwright Chromium ..."
+  echo "   PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH"
+  if [[ -z "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]]; then
+    echo "   Tip (CN): export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright"
+  fi
+  "$VENV_PY" -m playwright install chromium
+else
+  set +e
+  check_playwright
+  PW_RC=$?
+  set -e
+  if [[ "$PW_RC" != "0" ]]; then
+    echo "🌐 Playwright browser not available yet; installing Chromium ..."
+    echo "   PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_BROWSERS_PATH"
+    if [[ -z "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]]; then
+      echo "   Tip (CN): export PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright"
+    fi
+    "$VENV_PY" -m playwright install chromium || true
+  fi
+fi
+
+echo
+echo "🎉 Done."
+echo "Start:"
+echo "  ./启动程序.sh"
+echo "  # or"
+echo "  $VENV_PY main.py"

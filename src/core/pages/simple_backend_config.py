@@ -6,15 +6,21 @@
 
 import json
 import os
+from pathlib import Path
 from datetime import datetime
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QFont, QDesktopServices, QPixmap
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                            QPushButton, QLineEdit, QComboBox, QTextEdit, 
                            QSpinBox, QCheckBox, QDateTimeEdit, QTabWidget, 
-                           QFormLayout, QMessageBox, QScrollArea, QFrame, QGroupBox)
+                           QFormLayout, QMessageBox, QScrollArea, QFrame, QGroupBox,
+                           QListWidget, QListWidgetItem, QPlainTextEdit, QFileDialog)
 
 from src.config.config import Config
+from src.core.services.llm_service import llm_service
+from src.core.ai_integration.api_key_manager import api_key_manager
+from src.core.services.system_image_template_service import system_image_template_service
+from src.core.ui.qt_font import get_ui_font_family
 
 class SimpleBackendConfigPage(QWidget):
     """简化的后台配置页面"""
@@ -23,22 +29,33 @@ class SimpleBackendConfigPage(QWidget):
     
     # 提供商端点映射
     PROVIDER_ENDPOINTS = {
-        "OpenAI GPT-4": "https://api.openai.com/v1/chat/completions",
-        "OpenAI GPT-3.5": "https://api.openai.com/v1/chat/completions",
-        "Claude 3.5": "https://api.anthropic.com/v1/messages",
-        "Qwen3": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-        "Kimi2": "https://api.moonshot.cn/v1/chat/completions",
+        "OpenAI": "https://api.openai.com/v1/chat/completions",
+        "Anthropic（Claude）": "https://api.anthropic.com/v1/messages",
+        "阿里云（通义千问）": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        "月之暗面（Kimi）": "https://api.moonshot.cn/v1/chat/completions",
+        "字节跳动（豆包）": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
+        "腾讯（混元）": "https://api.lkeap.cloud.tencent.com/v1/chat/completions",
         "本地模型": "http://localhost:1234/v1/chat/completions"
     }
     
     # 默认模型名称映射
     PROVIDER_MODELS = {
-        "OpenAI GPT-4": "gpt-4",
-        "OpenAI GPT-3.5": "gpt-3.5-turbo",
-        "Claude 3.5": "claude-3-5-sonnet-20241022",
-        "Qwen3": "qwen3-72b-instruct",
-        "Kimi2": "kimi2-latest",
+        "OpenAI": "gpt-3.5-turbo",
+        "Anthropic（Claude）": "claude-3-5-sonnet-20241022",
+        "阿里云（通义千问）": "qwen3-72b-instruct",
+        "月之暗面（Kimi）": "kimi2-latest",
+        "字节跳动（豆包）": "doubao-pro-32k",
+        "腾讯（混元）": "hunyuan-turbo",
         "本地模型": "local-model"
+    }
+
+    # 兼容旧版本 provider 文本
+    PROVIDER_ALIASES = {
+        "OpenAI GPT-4": "OpenAI",
+        "OpenAI GPT-3.5": "OpenAI",
+        "Claude 3.5": "Anthropic（Claude）",
+        "Qwen3": "阿里云（通义千问）",
+        "Kimi2": "月之暗面（Kimi）",
     }
     
     def __init__(self, parent=None):
@@ -50,40 +67,57 @@ class SimpleBackendConfigPage(QWidget):
     
     def setup_ui(self):
         """设置优化界面"""
+        font_family = get_ui_font_family()
         self.setStyleSheet("""
             QWidget {
                 background-color: #f8f9fa;
             }
             QPushButton {
                 font-size: 16px;
-                font-family: "PingFang SC", "Microsoft YaHei";
+                font-family: "__UI_FONT_FAMILY__";
                 padding: 12px 24px;
                 border-radius: 8px;
                 font-weight: 500;
             }
             QLabel {
                 font-size: 15px;
-                font-family: "PingFang SC", "Microsoft YaHei";
+                font-family: "__UI_FONT_FAMILY__";
                 font-weight: 500;
                 color: #2c3e50;
             }
-            QLineEdit, QTextEdit, QComboBox {
+            QLineEdit, QTextEdit, QComboBox, QSpinBox, QDateTimeEdit {
                 font-size: 15px;
-                font-family: "PingFang SC", "Microsoft YaHei";
+                font-family: "__UI_FONT_FAMILY__";
                 padding: 10px;
                 border: 2px solid #e0e0e0;
                 border-radius: 8px;
                 background-color: white;
+                color: #1f2937;
+                selection-background-color: #1a73e8;
+                selection-color: white;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #1f2937;
+                selection-background-color: #e8f0fe;
+                selection-color: #1a73e8;
             }
             QGroupBox {
                 font-size: 16px;
-                font-family: "PingFang SC", "Microsoft YaHei";
+                font-family: "__UI_FONT_FAMILY__";
                 font-weight: bold;
-                color: #2c3e50;
-                border: 2px solid #e0e0e0;
+                color: #1f2937;
+                background-color: white;
+                border: 1px solid #e5e7eb;
                 border-radius: 10px;
-                margin-top: 10px;
-                padding-top: 10px;
+                margin-top: 14px;
+                padding: 14px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 8px;
+                color: #1a73e8;
             }
             QTabWidget::pane {
                 border: 1px solid #e0e0e0;
@@ -91,14 +125,14 @@ class SimpleBackendConfigPage(QWidget):
                 background-color: white;
             }
             QTabBar::tab {
-                font-size: 13px;
-                font-family: "PingFang SC", "Microsoft YaHei";
+                font-size: 14px;
+                font-family: "__UI_FONT_FAMILY__";
                 padding: 8px 16px;
                 margin-right: 2px;
                 background-color: #f1f3f4;
                 border-radius: 8px 8px 0 0;
                 color: #5f6368;
-                min-width: 100px;
+                min-width: 120px;
             }
             QTabBar::tab:selected {
                 background-color: white;
@@ -109,7 +143,13 @@ class SimpleBackendConfigPage(QWidget):
                 background-color: #e8f0fe;
                 color: #1a73e8;
             }
-        """)
+            QCheckBox {
+                font-size: 14px;
+                font-family: "__UI_FONT_FAMILY__";
+                color: #1f2937;
+                padding: 4px;
+            }
+        """.replace("__UI_FONT_FAMILY__", font_family))
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(30, 30, 30, 30)
@@ -128,12 +168,12 @@ class SimpleBackendConfigPage(QWidget):
         
         title_layout = QVBoxLayout(title_frame)
         title = QLabel("后台配置中心")
-        title.setFont(QFont("PingFang SC", 24, QFont.Bold))
+        title.setFont(QFont(get_ui_font_family(), 24, QFont.Bold))
         title.setStyleSheet("color: white;")
         title.setAlignment(Qt.AlignCenter)
         
         subtitle = QLabel("管理您的定时发布、AI模型和API配置")
-        subtitle.setFont(QFont("PingFang SC", 16))
+        subtitle.setFont(QFont(get_ui_font_family(), 16))
         subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.9);")
         subtitle.setAlignment(Qt.AlignCenter)
         
@@ -148,6 +188,7 @@ class SimpleBackendConfigPage(QWidget):
         # 定时发布配置
         tab_widget.addTab(self.create_schedule_tab(), "定时发布")
         tab_widget.addTab(self.create_model_tab(), "模型配置")
+        tab_widget.addTab(self.create_template_tab(), "模板库")
         tab_widget.addTab(self.create_api_tab(), "API管理")
         tab_widget.addTab(self.create_save_tab(), "保存配置")
         
@@ -165,13 +206,13 @@ class SimpleBackendConfigPage(QWidget):
         
         # 标题
         title = QLabel("⏰ 定时发布配置")
-        title.setFont(QFont("PingFang SC", 20, QFont.Bold))
+        title.setFont(QFont(get_ui_font_family(), 20, QFont.Bold))
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
         
         # 启用开关
         self.schedule_enabled = QCheckBox("✅ 启用定时发布功能")
-        self.schedule_enabled.setFont(QFont("PingFang SC", 16))
+        self.schedule_enabled.setFont(QFont(get_ui_font_family(), 16))
         layout.addWidget(self.schedule_enabled)
         
         # 创建分组
@@ -183,17 +224,17 @@ class SimpleBackendConfigPage(QWidget):
         self.schedule_time = QDateTimeEdit()
         self.schedule_time.setDisplayFormat("yyyy-MM-dd HH:mm")
         self.schedule_time.setMinimumDateTime(datetime.now())
-        self.schedule_time.setFont(QFont("PingFang SC", 14))
+        self.schedule_time.setFont(QFont(get_ui_font_family(), 14))
         
         self.interval_hours = QSpinBox()
         self.interval_hours.setRange(1, 24)
         self.interval_hours.setSuffix(" 小时")
-        self.interval_hours.setFont(QFont("PingFang SC", 14))
+        self.interval_hours.setFont(QFont(get_ui_font_family(), 14))
         
         self.max_posts = QSpinBox()
         self.max_posts.setRange(1, 50)
         self.max_posts.setSuffix(" 条")
-        self.max_posts.setFont(QFont("PingFang SC", 14))
+        self.max_posts.setFont(QFont(get_ui_font_family(), 14))
         
         group_layout.addRow("🕐 发布时间：", self.schedule_time)
         group_layout.addRow("📅 发布间隔：", self.interval_hours)
@@ -217,7 +258,7 @@ class SimpleBackendConfigPage(QWidget):
         
         # 标题
         title = QLabel("🤖 AI模型配置")
-        title.setFont(QFont("PingFang SC", 20, QFont.Bold))
+        title.setFont(QFont(get_ui_font_family(), 20, QFont.Bold))
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
         
@@ -228,35 +269,78 @@ class SimpleBackendConfigPage(QWidget):
         group_layout.setContentsMargins(20, 20, 20, 20)
         
         self.model_provider = QComboBox()
-        self.model_provider.addItems([
-            "OpenAI GPT-4", "OpenAI GPT-3.5", "Claude 3.5", 
-            "Qwen3", "Kimi2", "本地模型"
-        ])
-        self.model_provider.setFont(QFont("PingFang SC", 14))
+        self.model_provider.addItems(
+            [
+                "OpenAI",
+                "Anthropic（Claude）",
+                "阿里云（通义千问）",
+                "月之暗面（Kimi）",
+                "字节跳动（豆包）",
+                "腾讯（混元）",
+                "本地模型",
+            ]
+        )
+        self.model_provider.setFont(QFont(get_ui_font_family(), 14))
         self.model_provider.currentTextChanged.connect(self.on_provider_changed)
         
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.Password)
-        self.api_key.setFont(QFont("PingFang SC", 14))
+        self.api_key.setFont(QFont(get_ui_font_family(), 14))
         self.api_key.setPlaceholderText("请输入您的API密钥")
+
+        self.show_api_key = QCheckBox("显示")
+        self.show_api_key.setChecked(False)
+        self.show_api_key.stateChanged.connect(
+            lambda state: self.api_key.setEchoMode(QLineEdit.Normal if state else QLineEdit.Password)
+        )
+
+        api_key_row = QWidget()
+        api_key_row_layout = QHBoxLayout(api_key_row)
+        api_key_row_layout.setContentsMargins(0, 0, 0, 0)
+        api_key_row_layout.setSpacing(10)
+        api_key_row_layout.addWidget(self.api_key, 1)
+        api_key_row_layout.addWidget(self.show_api_key, 0)
+
+        self.api_key_hint = QLabel("")
+        self.api_key_hint.setWordWrap(True)
+        self.api_key_hint.setStyleSheet(
+            "color: #374151; font-size: 13px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px;"
+        )
         
         self.api_endpoint = QLineEdit()
-        self.api_endpoint.setFont(QFont("PingFang SC", 14))
+        self.api_endpoint.setFont(QFont(get_ui_font_family(), 14))
         self.api_endpoint.setPlaceholderText("例如：https://api.openai.com/v1/chat/completions")
+        self.api_endpoint.setMinimumWidth(520)
         
         self.model_name = QLineEdit()
-        self.model_name.setFont(QFont("PingFang SC", 14))
+        self.model_name.setFont(QFont(get_ui_font_family(), 14))
         self.model_name.setPlaceholderText("例如：gpt-3.5-turbo")
-        
+        self.model_name.setMinimumWidth(520)
+
+        # 文案模板选择
+        self.prompt_template = QComboBox()
+        self.prompt_template.setFont(QFont(get_ui_font_family(), 14))
+        self._load_prompt_templates()
+        self.prompt_template.currentIndexChanged.connect(self.on_prompt_template_changed)
+
+        self.prompt_template_desc = QLabel("")
+        self.prompt_template_desc.setWordWrap(True)
+        self.prompt_template_desc.setStyleSheet(
+            "color: #374151; font-size: 13px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px;"
+        )
+
         self.system_prompt = QTextEdit()
-        self.system_prompt.setMaximumHeight(120)
-        self.system_prompt.setFont(QFont("PingFang SC", 14))
+        self.system_prompt.setMinimumHeight(140)
+        self.system_prompt.setFont(QFont(get_ui_font_family(), 14))
         self.system_prompt.setPlaceholderText("请输入自定义系统提示词，这将影响AI生成内容的方式...")
         
         group_layout.addRow("🤖 提供商：", self.model_provider)
-        group_layout.addRow("🔑 API密钥：", self.api_key)
+        group_layout.addRow("🔑 API密钥：", api_key_row)
+        group_layout.addRow("", self.api_key_hint)
         group_layout.addRow("🔗 API端点：", self.api_endpoint)
         group_layout.addRow("⚙️ 模型名称：", self.model_name)
+        group_layout.addRow("🧩 文案模板：", self.prompt_template)
+        group_layout.addRow("", self.prompt_template_desc)
         group_layout.addRow("💬 系统提示：", self.system_prompt)
         
         layout.addWidget(group)
@@ -264,6 +348,418 @@ class SimpleBackendConfigPage(QWidget):
         
         scroll.setWidget(widget)
         return scroll
+
+    def create_template_tab(self):
+        """创建模板库标签页（文案模板）。"""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("🧩 模板库")
+        title.setFont(QFont(get_ui_font_family(), 20, QFont.Bold))
+        title.setStyleSheet("color: #2c3e50; margin-bottom: 10px;")
+        layout.addWidget(title)
+
+        template_dir = str(llm_service.get_prompt_templates_dir())
+        dir_row = QWidget()
+        dir_layout = QHBoxLayout(dir_row)
+        dir_layout.setContentsMargins(0, 0, 0, 0)
+        dir_layout.setSpacing(10)
+
+        dir_label = QLabel(f"模板目录：{template_dir}")
+        dir_label.setStyleSheet("color: #374151; font-size: 13px;")
+        dir_layout.addWidget(dir_label, 1)
+
+        open_btn = QPushButton("📂 打开目录")
+        open_btn.setStyleSheet(
+            "QPushButton { background-color: #1a73e8; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #1669d6; }"
+        )
+        open_btn.clicked.connect(self.open_prompt_templates_dir)
+        dir_layout.addWidget(open_btn, 0)
+
+        refresh_btn = QPushButton("🔄 刷新")
+        refresh_btn.setStyleSheet(
+            "QPushButton { background-color: #34a853; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #2f974b; }"
+        )
+        refresh_btn.clicked.connect(self.refresh_prompt_templates_library)
+        dir_layout.addWidget(refresh_btn, 0)
+
+        layout.addWidget(dir_row)
+
+        group = QGroupBox("文案模板（Prompts）")
+        group_layout = QHBoxLayout(group)
+        group_layout.setSpacing(16)
+        group_layout.setContentsMargins(16, 20, 16, 16)
+
+        self.template_list = QListWidget()
+        self.template_list.setMinimumWidth(260)
+        self.template_list.setStyleSheet(
+            "QListWidget { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px; }"
+            "QListWidget::item { padding: 10px; border-radius: 8px; }"
+            "QListWidget::item:selected { background: #e8f0fe; color: #1a73e8; }"
+        )
+        self.template_list.currentItemChanged.connect(self.on_template_item_changed)
+
+        detail = QWidget()
+        detail_layout = QVBoxLayout(detail)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(10)
+
+        self.template_meta = QLabel("请选择一个模板查看详情")
+        self.template_meta.setWordWrap(True)
+        self.template_meta.setStyleSheet(
+            "color: #374151; font-size: 13px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px;"
+        )
+        detail_layout.addWidget(self.template_meta)
+
+        self.template_prompt_view = QPlainTextEdit()
+        self.template_prompt_view.setReadOnly(True)
+        self.template_prompt_view.setPlaceholderText("这里会显示模板的 user_prompt 内容")
+        self.template_prompt_view.setStyleSheet(
+            "QPlainTextEdit { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; font-size: 13px; }"
+        )
+        self.template_prompt_view.setMinimumHeight(260)
+        detail_layout.addWidget(self.template_prompt_view, 1)
+
+        group_layout.addWidget(self.template_list, 0)
+        group_layout.addWidget(detail, 1)
+        layout.addWidget(group)
+
+        # 初次加载
+        self.refresh_prompt_templates_library()
+
+        # 系统图片模板（x-auto-publisher）
+        img_group = QGroupBox("系统模板图片（来自 x-auto-publisher，可导入本地）")
+        img_layout = QVBoxLayout(img_group)
+        img_layout.setSpacing(12)
+        img_layout.setContentsMargins(16, 20, 16, 16)
+
+        img_dir_row = QWidget()
+        img_dir_layout = QHBoxLayout(img_dir_row)
+        img_dir_layout.setContentsMargins(0, 0, 0, 0)
+        img_dir_layout.setSpacing(10)
+
+        self.system_templates_dir_label = QLabel("")
+        self.system_templates_dir_label.setWordWrap(True)
+        self.system_templates_dir_label.setStyleSheet("color: #374151; font-size: 13px;")
+        img_dir_layout.addWidget(self.system_templates_dir_label, 1)
+
+        choose_btn = QPushButton("🗂 选择目录")
+        choose_btn.setStyleSheet(
+            "QPushButton { background-color: #1a73e8; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #1669d6; }"
+        )
+        choose_btn.clicked.connect(self.choose_system_templates_dir)
+        img_dir_layout.addWidget(choose_btn, 0)
+
+        import_btn = QPushButton("📥 导入本地")
+        import_btn.setStyleSheet(
+            "QPushButton { background-color: #ff9500; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #e88600; }"
+        )
+        import_btn.clicked.connect(self.import_system_templates)
+        img_dir_layout.addWidget(import_btn, 0)
+
+        refresh_btn2 = QPushButton("🔄 刷新列表")
+        refresh_btn2.setStyleSheet(
+            "QPushButton { background-color: #34a853; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #2f974b; }"
+        )
+        refresh_btn2.clicked.connect(self.refresh_system_templates_library)
+        img_dir_layout.addWidget(refresh_btn2, 0)
+
+        open_btn2 = QPushButton("📂 打开目录")
+        open_btn2.setStyleSheet(
+            "QPushButton { background-color: #6b7280; color: white; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #4b5563; }"
+        )
+        open_btn2.clicked.connect(self.open_system_templates_dir)
+        img_dir_layout.addWidget(open_btn2, 0)
+
+        img_layout.addWidget(img_dir_row)
+
+        img_split = QWidget()
+        img_split_layout = QHBoxLayout(img_split)
+        img_split_layout.setContentsMargins(0, 0, 0, 0)
+        img_split_layout.setSpacing(16)
+
+        self.system_pack_list = QListWidget()
+        self.system_pack_list.setMinimumWidth(260)
+        self.system_pack_list.setStyleSheet(
+            "QListWidget { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 8px; }"
+            "QListWidget::item { padding: 10px; border-radius: 8px; }"
+            "QListWidget::item:selected { background: #e8f0fe; color: #1a73e8; }"
+        )
+        self.system_pack_list.currentItemChanged.connect(self.on_system_pack_changed)
+        img_split_layout.addWidget(self.system_pack_list, 0)
+
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)
+
+        self.system_pack_meta = QLabel("选择一个模板包查看预览")
+        self.system_pack_meta.setWordWrap(True)
+        self.system_pack_meta.setStyleSheet(
+            "color: #374151; font-size: 13px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px;"
+        )
+        right_layout.addWidget(self.system_pack_meta)
+
+        self.system_pack_preview = QLabel()
+        self.system_pack_preview.setMinimumHeight(260)
+        self.system_pack_preview.setAlignment(Qt.AlignCenter)
+        self.system_pack_preview.setStyleSheet(
+            "QLabel { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; }"
+        )
+        self.system_pack_preview.setText("预览图")
+        right_layout.addWidget(self.system_pack_preview, 1)
+
+        btn_row = QWidget()
+        btn_layout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(10)
+
+        set_default_btn = QPushButton("⭐ 设为默认（生成时使用）")
+        set_default_btn.setStyleSheet(
+            "QPushButton { background-color: #1a73e8; color: white; border: none; padding: 10px 14px; border-radius: 10px; font-size: 13px; }"
+            "QPushButton:hover { background-color: #1669d6; }"
+        )
+        set_default_btn.clicked.connect(self.set_default_system_pack)
+        btn_layout.addWidget(set_default_btn, 0)
+
+        btn_layout.addStretch()
+        right_layout.addWidget(btn_row)
+
+        img_split_layout.addWidget(right_panel, 1)
+        img_layout.addWidget(img_split)
+        layout.addWidget(img_group)
+
+        self.refresh_system_templates_library()
+
+        layout.addStretch()
+        scroll.setWidget(widget)
+        return scroll
+
+    def open_prompt_templates_dir(self):
+        try:
+            path = str(llm_service.get_prompt_templates_dir())
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"打开目录失败: {e}")
+
+    def refresh_prompt_templates_library(self):
+        """刷新模板库列表，并同步刷新模型配置里的下拉框。"""
+        try:
+            templates = llm_service.list_prompt_templates()
+        except Exception as e:
+            templates = []
+            QMessageBox.warning(self, "错误", f"加载模板失败: {e}")
+
+        # 列表
+        if hasattr(self, "template_list") and self.template_list is not None:
+            self.template_list.clear()
+            if not templates:
+                item = QListWidgetItem("（未找到模板）")
+                item.setData(Qt.UserRole, "")
+                self.template_list.addItem(item)
+            else:
+                for tpl in templates:
+                    item = QListWidgetItem(tpl.name)
+                    item.setData(Qt.UserRole, tpl.id)
+                    self.template_list.addItem(item)
+                self.template_list.setCurrentRow(0)
+
+        # 同步模型页下拉框（保持当前选择）
+        try:
+            selected_id = None
+            if hasattr(self, "prompt_template") and self.prompt_template is not None:
+                selected_id = self.prompt_template.currentData()
+                self._load_prompt_templates()
+                if selected_id:
+                    idx = self.prompt_template.findData(selected_id)
+                    if idx >= 0:
+                        self.prompt_template.setCurrentIndex(idx)
+                self.on_prompt_template_changed(self.prompt_template.currentIndex())
+        except Exception:
+            pass
+
+    def _update_system_templates_dir_label(self):
+        base_dir = system_image_template_service.resolve_templates_dir()
+        if base_dir:
+            self.system_templates_dir_label.setText(f"当前模板目录：{base_dir}")
+        else:
+            self.system_templates_dir_label.setText(
+                "当前模板目录：未发现（可选择 x-auto-publisher 目录，或导入到本地 ~/.xhs_system/system_templates）"
+            )
+
+    def refresh_system_templates_library(self):
+        self._update_system_templates_dir_label()
+        packs = system_image_template_service.list_content_packs()
+
+        self.system_pack_list.clear()
+        if not packs:
+            item = QListWidgetItem("（未找到 content_*_page*.png 模板包）")
+            item.setData(Qt.UserRole, "")
+            self.system_pack_list.addItem(item)
+            self.system_pack_meta.setText("未发现可用模板包。你可以点击“选择目录”指向 x-auto-publisher，或点击“导入本地”。")
+            self.system_pack_preview.setText("预览图")
+            self.system_pack_preview.setPixmap(QPixmap())
+            return
+
+        for pack in packs:
+            show = pack.id.replace("content_", "")
+            page_count = len(pack.pages)
+            item = QListWidgetItem(f"{show}  ({page_count}页)")
+            item.setData(Qt.UserRole, pack.id)
+            item.setData(Qt.UserRole + 1, [str(p) for p in pack.pages])
+            self.system_pack_list.addItem(item)
+
+        # 选中默认项
+        default_id = system_image_template_service.get_selected_pack_id()
+        target_row = 0
+        if default_id:
+            for i in range(self.system_pack_list.count()):
+                it = self.system_pack_list.item(i)
+                if it and it.data(Qt.UserRole) == default_id:
+                    target_row = i
+                    break
+        self.system_pack_list.setCurrentRow(target_row)
+
+    def on_system_pack_changed(self, current: QListWidgetItem, _previous: QListWidgetItem):
+        try:
+            if not current:
+                return
+            pack_id = str(current.data(Qt.UserRole) or "")
+            pages = current.data(Qt.UserRole + 1) or []
+            if not pack_id or not pages:
+                self.system_pack_meta.setText("未找到可用模板包。")
+                self.system_pack_preview.setText("预览图")
+                self.system_pack_preview.setPixmap(QPixmap())
+                return
+
+            self.system_pack_meta.setText(f"模板包：{pack_id}\n页数：{len(pages)}")
+
+            preview_path = pages[0]
+            if preview_path and os.path.exists(preview_path):
+                pix = QPixmap(preview_path)
+                if not pix.isNull():
+                    self.system_pack_preview.setPixmap(pix.scaled(360, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    return
+            self.system_pack_preview.setText("预览图加载失败")
+            self.system_pack_preview.setPixmap(QPixmap())
+        except Exception as e:
+            self.system_pack_meta.setText(f"预览失败: {e}")
+            self.system_pack_preview.setText("预览图")
+            self.system_pack_preview.setPixmap(QPixmap())
+
+    def choose_system_templates_dir(self):
+        try:
+            start_dir = str(system_image_template_service.resolve_templates_dir() or Path.home())
+            chosen = QFileDialog.getExistingDirectory(self, "选择系统模板目录（x-auto-publisher 或其 templates 目录）", start_dir)
+            if not chosen:
+                return
+            cfg = self.config.get_templates_config()
+            cfg["system_templates_dir"] = chosen
+            self.config.update_templates_config(cfg)
+            self.refresh_system_templates_library()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"选择目录失败: {e}")
+
+    def import_system_templates(self):
+        try:
+            start_dir = str(system_image_template_service.resolve_templates_dir() or Path.home())
+            chosen = QFileDialog.getExistingDirectory(self, "选择要导入的模板目录（建议选择 x-auto-publisher 根目录）", start_dir)
+            if not chosen:
+                return
+            ok, msg = system_image_template_service.import_from_source(chosen)
+            if ok:
+                QMessageBox.information(self, "成功", msg)
+            else:
+                QMessageBox.warning(self, "失败", msg)
+            self.refresh_system_templates_library()
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"导入失败: {e}")
+
+    def open_system_templates_dir(self):
+        try:
+            path = system_image_template_service.resolve_templates_dir()
+            if not path:
+                QMessageBox.information(self, "提示", "未发现模板目录，请先选择或导入。")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"打开目录失败: {e}")
+
+    def set_default_system_pack(self):
+        try:
+            current = self.system_pack_list.currentItem()
+            if not current:
+                return
+            pack_id = str(current.data(Qt.UserRole) or "").strip()
+            if not pack_id:
+                return
+            cfg = self.config.get_templates_config()
+            cfg["default_content_pack"] = pack_id
+            # 同时保存当前目录（便于跨平台一致）
+            base_dir = system_image_template_service.resolve_templates_dir()
+            if base_dir:
+                cfg["system_templates_dir"] = str(base_dir)
+            self.config.update_templates_config(cfg)
+            QMessageBox.information(self, "成功", f"已设置默认模板包：{pack_id}")
+        except Exception as e:
+            QMessageBox.warning(self, "错误", f"设置失败: {e}")
+
+    def on_template_item_changed(self, current: QListWidgetItem, _previous: QListWidgetItem):
+        try:
+            template_id = current.data(Qt.UserRole) if current else ""
+            if not template_id:
+                self.template_meta.setText("未找到可用模板文件。请将模板 JSON 放入 templates/prompts 目录后点击“刷新”。")
+                self.template_prompt_view.setPlainText("")
+                return
+
+            tpl = llm_service.get_prompt_template(str(template_id))
+            if not tpl:
+                self.template_meta.setText("模板读取失败，请点击“刷新”重试。")
+                self.template_prompt_view.setPlainText("")
+                return
+
+            meta = f"ID：{tpl.id}\n名称：{tpl.name}\n描述：{tpl.description or '（无）'}"
+            self.template_meta.setText(meta)
+            self.template_prompt_view.setPlainText(tpl.user_prompt or "")
+        except Exception as e:
+            self.template_meta.setText(f"模板显示失败: {e}")
+            self.template_prompt_view.setPlainText("")
+
+    def _load_prompt_templates(self):
+        """加载文案模板列表。"""
+        try:
+            self.prompt_template.clear()
+            templates = llm_service.list_prompt_templates()
+            if not templates:
+                self.prompt_template.addItem("（未找到模板，使用默认内置）", "builtin")
+                return
+
+            for tpl in templates:
+                self.prompt_template.addItem(tpl.name, tpl.id)
+
+        except Exception:
+            self.prompt_template.clear()
+            self.prompt_template.addItem("（模板加载失败，使用默认内置）", "builtin")
+
+    def on_prompt_template_changed(self, _index: int = 0):
+        """模板切换时更新描述。"""
+        try:
+            template_id = self.prompt_template.currentData()
+            tpl = llm_service.get_prompt_template(template_id)
+            self.prompt_template_desc.setText(tpl.description if tpl else "")
+        except Exception:
+            self.prompt_template_desc.setText("")
     
     def on_provider_changed(self, provider):
         """当提供商改变时自动更新端点和模型名称"""
@@ -273,6 +769,7 @@ class SimpleBackendConfigPage(QWidget):
     
     def create_api_tab(self):
         """创建API配置标签页"""
+        ui_font_family = get_ui_font_family()
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         
@@ -283,7 +780,7 @@ class SimpleBackendConfigPage(QWidget):
         
         # 标题
         title = QLabel("🔑 API管理配置")
-        title.setFont(QFont("PingFang SC", 20, QFont.Bold))
+        title.setFont(QFont(ui_font_family, 20, QFont.Bold))
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
         
@@ -295,12 +792,12 @@ class SimpleBackendConfigPage(QWidget):
         
         self.xhs_api_key = QLineEdit()
         self.xhs_api_key.setEchoMode(QLineEdit.Password)
-        self.xhs_api_key.setFont(QFont("PingFang SC", 14))
+        self.xhs_api_key.setFont(QFont(ui_font_family, 14))
         self.xhs_api_key.setPlaceholderText("请输入小红书API密钥")
         
         self.xhs_api_secret = QLineEdit()
         self.xhs_api_secret.setEchoMode(QLineEdit.Password)
-        self.xhs_api_secret.setFont(QFont("PingFang SC", 14))
+        self.xhs_api_secret.setFont(QFont(ui_font_family, 14))
         self.xhs_api_secret.setPlaceholderText("请输入小红书API密钥密文")
         
         xhs_layout.addRow("🔑 API密钥：", self.xhs_api_key)
@@ -314,10 +811,10 @@ class SimpleBackendConfigPage(QWidget):
         
         self.image_provider = QComboBox()
         self.image_provider.addItems(["本地存储", "阿里云OSS", "腾讯云COS"])
-        self.image_provider.setFont(QFont("PingFang SC", 14))
+        self.image_provider.setFont(QFont(ui_font_family, 14))
         
         self.image_endpoint = QLineEdit()
-        self.image_endpoint.setFont(QFont("PingFang SC", 14))
+        self.image_endpoint.setFont(QFont(ui_font_family, 14))
         self.image_endpoint.setPlaceholderText("例如：https://your-bucket.oss-region.aliyuncs.com")
         
         storage_layout.addRow("☁️ 存储提供商：", self.image_provider)
@@ -387,6 +884,9 @@ class SimpleBackendConfigPage(QWidget):
     def load_config(self):
         """加载配置"""
         try:
+            self._api_key_placeholder_active = False
+            self._api_key_name = ""
+
             # 定时发布配置
             schedule_config = self.config.get_schedule_config()
             self.schedule_enabled.setChecked(schedule_config.get('enabled', False))
@@ -395,15 +895,49 @@ class SimpleBackendConfigPage(QWidget):
             
             # 模型配置
             model_config = self.config.get_model_config()
-            provider_index = self.model_provider.findText(model_config.get('provider', 'OpenAI GPT-3.5'))
+
+            saved_provider_raw = (model_config.get('provider', '') or '').strip() or 'OpenAI'
+            saved_provider = self.PROVIDER_ALIASES.get(saved_provider_raw, saved_provider_raw)
+
+            provider_index = self.model_provider.findText(saved_provider)
             if provider_index >= 0:
                 self.model_provider.setCurrentIndex(provider_index)
             
             # 获取当前提供商
             current_provider = self.model_provider.currentText()
             
-            # 设置API密钥
-            self.api_key.setText(model_config.get('api_key', ''))
+            # 设置API密钥（优先显示 settings.json 里的明文；否则使用本地加密存储）
+            api_key_plain = (model_config.get('api_key', '') or '').strip()
+            api_key_name = (model_config.get('api_key_name', '') or '').strip() or 'default'
+            key_from_store = api_key_manager.get_key(current_provider, api_key_name) if api_key_name else None
+            if not key_from_store and saved_provider_raw and saved_provider_raw != current_provider:
+                legacy_key = api_key_manager.get_key(saved_provider_raw, api_key_name)
+                if legacy_key:
+                    key_from_store = legacy_key
+                    # 自动迁移旧 provider 下的 key，避免保存后丢失
+                    try:
+                        api_key_manager.add_key(current_provider, api_key_name, legacy_key)
+                    except Exception:
+                        pass
+
+            if api_key_plain:
+                self.api_key.setText(api_key_plain)
+                self.api_key.setPlaceholderText("请输入您的API密钥")
+                self._api_key_placeholder_active = False
+                self._api_key_name = api_key_name
+                self.api_key_hint.setText("提示：已从 settings.json 读取 API Key。保存后会默认写入本地加密存储。")
+            elif key_from_store:
+                self.api_key.setText("")
+                self.api_key.setPlaceholderText(f"已配置（加密存储：{api_key_name}），留空则保持不变")
+                self._api_key_placeholder_active = True
+                self._api_key_name = api_key_name
+                self.api_key_hint.setText(f"提示：API Key 已加密保存（{api_key_name}）。如需更新，直接在此处粘贴新 Key 并保存。")
+            else:
+                self.api_key.setText("")
+                self.api_key.setPlaceholderText("请输入您的API密钥")
+                self._api_key_placeholder_active = False
+                self._api_key_name = api_key_name
+                self.api_key_hint.setText("提示：本地模型/localhost 一般无需 Key；公网模型通常需要 Key。")
             
             # 根据提供商自动设置默认端点和模型名称（保持向后兼容）
             saved_endpoint = model_config.get('api_endpoint', '')
@@ -429,6 +963,16 @@ class SimpleBackendConfigPage(QWidget):
                 self.model_name.setText(self.PROVIDER_MODELS.get(current_provider, ''))
                 
             self.system_prompt.setPlainText(model_config.get('system_prompt', ''))
+
+            # 文案模板
+            template_id = (model_config.get('prompt_template') or 'xiaohongshu_default')
+            tpl_index = self.prompt_template.findData(template_id)
+            if tpl_index >= 0:
+                self.prompt_template.setCurrentIndex(tpl_index)
+            else:
+                # 找不到就保持默认第一个
+                self.prompt_template.setCurrentIndex(0)
+            self.on_prompt_template_changed(self.prompt_template.currentIndex())
             
             # API配置
             api_config = self.config.get_api_config()
@@ -457,12 +1001,35 @@ class SimpleBackendConfigPage(QWidget):
             }
             self.config.update_schedule_config(schedule_config)
             
-            # 保存模型配置
+            # 保存模型配置（API Key 默认加密存储到 ~/.xhs_system/keys.enc）
+            provider = self.model_provider.currentText()
+            api_key_name = (getattr(self, "_api_key_name", "") or "default").strip() or "default"
+            api_key_plain = (self.api_key.text() or "").strip()
+
+            stored_in_keychain = False
+            if api_key_plain:
+                try:
+                    stored_in_keychain = bool(api_key_manager.add_key(provider, api_key_name, api_key_plain))
+                except Exception:
+                    stored_in_keychain = False
+
+            if stored_in_keychain:
+                api_key_to_save = ""
+            else:
+                # 用户手动输入但存储失败，则保底写入 settings.json，保证可用
+                api_key_to_save = api_key_plain
+
+            if not api_key_plain and getattr(self, "_api_key_placeholder_active", False):
+                # 留空表示保持加密存储中的 key，不改动
+                api_key_to_save = ""
+
             model_config = {
-                'provider': self.model_provider.currentText(),
-                'api_key': self.api_key.text(),
+                'provider': provider,
+                'api_key': api_key_to_save,
+                'api_key_name': api_key_name,
                 'api_endpoint': self.api_endpoint.text(),
                 'model_name': self.model_name.text(),
+                'prompt_template': self.prompt_template.currentData(),
                 'system_prompt': self.system_prompt.toPlainText(),
                 'advanced': {
                     'temperature': 0.7,

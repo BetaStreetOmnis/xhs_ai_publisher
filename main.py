@@ -13,12 +13,42 @@ from src.core.pages.home import HomePage
 from src.core.pages.setting import SettingsPage
 from src.core.pages.tools import ToolsPage
 from src.core.pages.browser_environment_page import BrowserEnvironmentPage
+from src.core.pages.user_management_page import UserManagementPage
 from src.core.pages.simple_backend_config import BackendConfigPage
+from src.core.pages.cover_center_page import CoverCenterPage
+from src.core.pages.data_center_page import DataCenterPage
 from src.logger.logger import Logger
 
 # 设置日志文件路径
 log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
+
+def load_env_file():
+    """加载项目根目录的 .env（不覆盖已有环境变量）。"""
+    try:
+        from dotenv import load_dotenv
+    except Exception:
+        return
+
+    try:
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        env_path = os.path.join(project_root, ".env")
+        if os.path.exists(env_path):
+            load_dotenv(env_path, override=False)
+    except Exception:
+        pass
+
+
+def init_playwright_env():
+    """统一 Playwright 浏览器缓存目录，提升 Windows 稳定性。"""
+    try:
+        browsers_path = os.path.join(os.path.expanduser("~"), ".xhs_system", "ms-playwright")
+        os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", browsers_path)
+        if sys.platform == "win32":
+            os.environ.setdefault("PLAYWRIGHT_DOWNLOAD_HOST", "https://npmmirror.com/mirrors/playwright")
+        os.makedirs(browsers_path, exist_ok=True)
+    except Exception:
+        pass
 
 def init_database_on_startup():
     """应用启动时初始化数据库"""
@@ -69,11 +99,11 @@ class XiaohongshuUI(QMainWindow):
         self.config = Config()
 
         # 设置应用图标
-        icon_path = os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), 'build/icon.png')
-        self.app_icon = QIcon(icon_path)
-        QApplication.setWindowIcon(self.app_icon)
-        self.setWindowIcon(self.app_icon)
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "build", "icon.png")
+        if os.path.exists(icon_path):
+            self.app_icon = QIcon(icon_path)
+            QApplication.setWindowIcon(self.app_icon)
+            self.setWindowIcon(self.app_icon)
 
         # 加载logger
         app_config = self.config.get_app_config()
@@ -178,35 +208,52 @@ class XiaohongshuUI(QMainWindow):
         home_btn.setChecked(True)
         home_btn.clicked.connect(lambda: self.switch_page(0))
 
+        # 添加用户管理按钮
+        user_btn = QPushButton("👥")
+        user_btn.setCheckable(True)
+        user_btn.clicked.connect(lambda: self.switch_page(1))
 
         # 添加浏览器环境按钮
         browser_env_btn = QPushButton("🌐")
         browser_env_btn.setCheckable(True)
-        browser_env_btn.clicked.connect(lambda: self.switch_page(1))
+        browser_env_btn.clicked.connect(lambda: self.switch_page(2))
 
         # 添加后台配置按钮
         backend_btn = QPushButton("⚙️")
         backend_btn.setCheckable(True)
-        backend_btn.clicked.connect(lambda: self.switch_page(2))
+        backend_btn.clicked.connect(lambda: self.switch_page(3))
+
+        # 添加封面生成按钮
+        cover_btn = QPushButton("🖼️")
+        cover_btn.setCheckable(True)
+        cover_btn.clicked.connect(lambda: self.switch_page(4))
+
+        # 数据中心
+        data_center_btn = QPushButton("📊")
+        data_center_btn.setCheckable(True)
+        data_center_btn.clicked.connect(lambda: self.switch_page(5))
 
         # 添加工具箱按钮
         tools_btn = QPushButton("🧰")
         tools_btn.setCheckable(True)
-        tools_btn.clicked.connect(lambda: self.switch_page(3))
+        tools_btn.clicked.connect(lambda: self.switch_page(6))
 
         settings_btn = QPushButton("⚙️")
         settings_btn.setCheckable(True)
-        settings_btn.clicked.connect(lambda: self.switch_page(4))
+        settings_btn.clicked.connect(lambda: self.switch_page(7))
 
         sidebar_layout.addWidget(home_btn)
+        sidebar_layout.addWidget(user_btn)
         sidebar_layout.addWidget(browser_env_btn)
         sidebar_layout.addWidget(backend_btn)
+        sidebar_layout.addWidget(cover_btn)
+        sidebar_layout.addWidget(data_center_btn)
         sidebar_layout.addWidget(tools_btn)
         sidebar_layout.addWidget(settings_btn)
         sidebar_layout.addStretch()
 
         # 存储按钮引用以便切换状态
-        self.sidebar_buttons = [home_btn, browser_env_btn, backend_btn, tools_btn, settings_btn]
+        self.sidebar_buttons = [home_btn, user_btn, browser_env_btn, backend_btn, cover_btn, data_center_btn, tools_btn, settings_btn]
 
         # 添加侧边栏到主布局
         main_layout.addWidget(sidebar)
@@ -217,15 +264,21 @@ class XiaohongshuUI(QMainWindow):
 
         # 创建并添加页面
         self.home_page = HomePage(self)
+        self.user_management_page = UserManagementPage(self)
         self.browser_environment_page = BrowserEnvironmentPage(self)
         self.backend_config_page = BackendConfigPage(self)
+        self.cover_page = CoverCenterPage(self)
+        self.data_center_page = DataCenterPage(self)
         self.tools_page = ToolsPage(self)
         self.settings_page = SettingsPage(self)
 
 # 将页面添加到堆叠窗口
         self.stack.addWidget(self.home_page)
+        self.stack.addWidget(self.user_management_page)
         self.stack.addWidget(self.browser_environment_page)
         self.stack.addWidget(self.backend_config_page)
+        self.stack.addWidget(self.cover_page)
+        self.stack.addWidget(self.data_center_page)
         self.stack.addWidget(self.tools_page)
         self.stack.addWidget(self.settings_page)
 
@@ -251,6 +304,25 @@ class XiaohongshuUI(QMainWindow):
         
         # 启动下载器线程
         self.start_downloader_thread()
+
+        # 启动后同步一次当前用户到UI
+        self.sync_current_user_to_ui()
+
+    def sync_current_user_to_ui(self):
+        """将当前用户手机号同步到主页手机号输入框。"""
+        try:
+            from src.core.services.user_service import user_service
+
+            current_user = user_service.get_current_user()
+            if not current_user:
+                return
+
+            if hasattr(self, "home_page") and hasattr(self.home_page, "phone_input"):
+                self.home_page.phone_input.blockSignals(True)
+                self.home_page.phone_input.setText(current_user.phone or "")
+                self.home_page.phone_input.blockSignals(False)
+        except Exception:
+            pass
 
     def center(self):
         """将窗口移动到屏幕中央"""
@@ -347,27 +419,52 @@ class XiaohongshuUI(QMainWindow):
                     # 检查Chrome是否已安装
                     with sync_playwright() as p:
                         try:
-                            # 尝试启动Chrome来检查是否已安装
-                            browser = p.chromium.launch(headless=True)
+                            # 优先检查 Playwright 自带 Chromium
+                            browser = p.chromium.launch(headless=True, timeout=30_000)
                             browser.close()
-                            self.logger.success("✅ Chrome浏览器已可用")
+                            self.logger.success("✅ Playwright Chromium 已可用")
                             return
                         except Exception as e:
                             if "Executable doesn't exist" in str(e) or "找不到" in str(e):
+                                # 尝试系统浏览器通道（避免因 Playwright 缓存缺失而强制下载）
+                                for channel in ("chrome", "msedge"):
+                                    try:
+                                        browser = p.chromium.launch(channel=channel, headless=True, timeout=30_000)
+                                        browser.close()
+                                        self.logger.success(f"✅ 系统浏览器可用（{channel}），无需下载 Playwright Chromium")
+                                        return
+                                    except Exception:
+                                        continue
+
                                 self.logger.info("🔄 Chrome浏览器未安装，正在下载...")
                                 
                                 # 下载Chrome浏览器
                                 import subprocess
                                 import sys
+
+                                # 打包版 exe 无法通过 `sys.executable -m playwright ...` 在线安装浏览器
+                                if getattr(sys, "frozen", False):
+                                    self.logger.error("❌ 检测到浏览器缺失，但当前为打包版本，无法自动下载 Playwright Chromium。")
+                                    self.logger.info("💡 可能原因：杀毒软件误删了浏览器文件；请将程序目录加入白名单并重新解压完整包。")
+                                    return
                                 
                                 # 使用playwright install命令下载Chrome
                                 try:
                                     self.logger.info("📥 正在下载Chrome浏览器，请稍候...")
+                                    env = os.environ.copy()
+                                    env.setdefault(
+                                        "PLAYWRIGHT_BROWSERS_PATH",
+                                        os.path.join(os.path.expanduser("~"), ".xhs_system", "ms-playwright"),
+                                    )
+                                    if sys.platform == "win32":
+                                        env.setdefault("PLAYWRIGHT_DOWNLOAD_HOST", "https://npmmirror.com/mirrors/playwright")
+
                                     result = subprocess.run(
                                         [sys.executable, "-m", "playwright", "install", "chromium"],
                                         capture_output=True,
                                         text=True,
-                                        timeout=300  # 5分钟超时
+                                        env=env,
+                                        timeout=1200  # 20分钟超时（部分网络较慢）
                                     )
                                     
                                     if result.returncode == 0:
@@ -422,6 +519,9 @@ class XiaohongshuUI(QMainWindow):
 
 if __name__ == "__main__":
     try:
+        load_env_file()
+        init_playwright_env()
+
         # 设置信号处理
         def signal_handler(signum, frame):
             print("\n正在退出程序...")

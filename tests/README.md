@@ -64,29 +64,29 @@
 
 ### **方法1：一键运行所有测试**
 ```bash
-cd test
+cd tests
 python test_runner.py
 ```
 
 ### **方法2：使用pytest**
 ```bash
 # 运行所有测试
-python -m pytest test/ -v
+python -m pytest tests/ -v
 
 # 运行单元测试
-python -m pytest test/unit/ -v
+python -m pytest tests/unit/ -v
 
 # 运行集成测试
-python -m pytest test/integration/ -v
+python -m pytest tests/integration/ -v
 
 # 运行特定测试
-python -m pytest test/unit/test_database.py -v
+python -m pytest tests/unit/test_database.py -v
 ```
 
 ### **方法3：带覆盖率测试**
 ```bash
 # 生成覆盖率报告
-python -m pytest test/ --cov=src --cov-report=html
+python -m pytest tests/ --cov=src --cov-report=html
 
 # 查看HTML报告
 open reports/coverage/index.html
@@ -120,7 +120,7 @@ open reports/coverage/index.html
 ### **测试依赖安装**
 ```bash
 # 安装测试依赖
-cd test
+cd tests
 pip install -r requirements.txt
 
 # 安装Playwright浏览器（浏览器测试需要）
@@ -156,7 +156,7 @@ playwright install chromium
 ### **测试失败处理**
 1. **数据库测试失败**
    ```bash
-   python init_db.py
+   python src/core/database_init.py init
    ```
 
 2. **浏览器测试失败**
@@ -166,7 +166,7 @@ playwright install chromium
 
 3. **依赖缺失**
    ```bash
-   pip install -r test/requirements.txt
+   pip install -r tests/requirements.txt
    ```
 
 ### **性能基准**

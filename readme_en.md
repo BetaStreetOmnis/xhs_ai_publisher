@@ -48,7 +48,10 @@
 ### 🤖 AI Smart Generation
 - 🎯 **Smart Titles**: AI-generated engaging titles
 - 📝 **Content Creation**: Auto-generate articles based on topics
+- 🔧 **Custom Models**: Configure OpenAI-compatible / Claude / Ollama endpoints for generation (falls back to built-in methods if not configured)
+- 🧩 **Prompt Templates**: Choose different writing styles via templates (`templates/prompts/*.json`), and extend them easily
 - 🖼️ **Image Processing**: Smart image matching and processing
+- 🎨 **AI Cover (Experimental)**: Implemented (see `AI_COVER_GUIDE.md`), not yet exposed in the main UI navigation
 - 🏷️ **Tag Recommendations**: Auto-recommend trending tags
 
 </td>
@@ -66,16 +69,16 @@
 <td width="50%">
 
 ### 👥 User Management
-- 🔄 **Multi-Account**: Support multiple Xiaohongshu accounts
-- 🌐 **Proxy Configuration**: Support proxy server configuration
-- 🔍 **Browser Fingerprints**: Anti-detection browser fingerprints
-- 📊 **Data Analytics**: Publishing data statistics and analysis
+- 🔄 **Multi-Account / Users**: Create/switch/delete users; login/session data is isolated per user
+- 🌐 **Proxy Configuration**: Applied to publishing sessions via default “browser environment” (Playwright proxy)
+- 🔍 **Browser Fingerprints**: Applied to publishing sessions (UA/viewport/locale/timezone/geolocation); deeper WebGL/canvas spoofing is still WIP
+- 📊 **Data Analytics**: Basic stats exist (tasks/contents/sessions); post-performance analytics is WIP
 
 </td>
 <td width="50%">
 
 ### 🛡️ Security & Stability
-- 🔐 **Data Encryption**: Secure local data encryption storage
+- 🔐 **Data Encryption**: Model API keys are stored locally with encryption by default (`~/.xhs_system/keys.enc`)
 - 🛡️ **Anti-Detection**: Advanced anti-detection technology
 - 📝 **Logging**: Complete operation logging
 - 🔄 **Error Recovery**: Smart error handling and recovery
@@ -90,23 +93,29 @@
 
 ```
 📦 xhs_ai_publisher/
+├── 📂 assets/                       # 🧩 Bundled template showcase (optional)
+├── 📂 templates/                    # 🧩 Prompt/Cover templates (extendable)
+├── 🧰 install.sh                    # 📦 One-click install (macOS/Linux)
+├── 🧰 install.bat                   # 📦 One-click install (Windows)
 ├── 📂 src/                          # 🔧 Source Code Directory
 │   ├── 📂 core/                     # ⚡ Core Functionality Modules
 │   │   ├── 📂 models/               # 🗄️ Data Models
 │   │   ├── 📂 services/             # 🔧 Business Service Layer
 │   │   ├── 📂 pages/                # 🎨 UI Pages
-│   │   ├── 📂 browser/              # 🌐 Browser Automation
-│   │   └── 📂 utils/                # 🛠️ Utility Functions
+│   │   ├── 📂 processor/            # 🧩 Content/Image processing
+│   │   ├── 📂 scheduler/            # ⏰ Scheduling (currently simulated)
+│   │   └── 📂 ai_integration/       # 🤖 AI adapters (experimental)
 │   ├── 📂 web/                      # 🌐 Web Interface
 │   │   ├── 📂 templates/            # 📄 HTML Templates
 │   │   └── 📂 static/               # 🎨 Static Resources
 │   └── 📂 logger/                   # 📝 Logging System
-├── 📂 ai_publish_google_shop/       # 🏪 Chrome Extension
-├── 📂 test/                         # 🧪 Test Directory
-├── 📂 build/                        # 📦 Build Output
+├── 📂 tests/                        # 🧪 Test Directory
 ├── 🐍 main.py                       # 🚀 Main Program Entry
+├── 🚀 启动程序.sh                   # ▶️ Start script (macOS/Linux)
+├── 🚀 启动程序.bat                  # ▶️ Start script (Windows)
+├── ⚙️ .env.example                  # 🔑 Env example (do not commit real .env)
 ├── 📋 requirements.txt              # 📦 Dependencies List
-└── 📖 README.md                     # 📚 Project Documentation
+└── 📖 readme_en.md                  # 📚 Project Documentation
 ```
 
 ---
@@ -119,14 +128,26 @@
 
 | Component | Version | Description |
 |:---:|:---:|:---:|
-| 🐍 **Python** | `3.9+` | Latest version recommended |
+| 🐍 **Python** | `3.8+` | Latest version recommended |
 | 🌐 **Chrome** | `Latest` | For browser automation |
 | 💾 **Memory** | `4GB+` | 8GB+ recommended |
 | 💿 **Storage** | `2GB+` | For dependencies and data |
 
 </div>
 
+> Windows: **Python 3.11/3.12 (64-bit)** recommended. Python 3.13 or 32-bit Python often breaks **PyQt5** installation.
+
 ### 🚀 Installation Methods
+
+**One-click install**
+- macOS/Linux: `./install.sh` then `./启动程序.sh`
+- Windows: `install.bat` then `启动程序.bat`
+- Flags: `--with-browser` (force install Chromium), `--skip-browser` (skip browser check/install)
+
+**Troubleshooting**
+- Windows install fails (often PyQt5): use Python 3.11/3.12 (64-bit), avoid Python 3.13 or 32-bit Python
+- Linux browser launch fails: install system deps via `sudo python -m playwright install-deps chromium`
+- `qt.qpa.fonts ... Microsoft YaHei`: harmless Qt warning; the app now auto-selects an available system font
 
 <details>
 <summary>📥 <strong>Method 1: Source Installation (Recommended for Developers)</strong></summary>
@@ -145,13 +166,13 @@ venv\Scripts\activate     # Windows
 # 3️⃣ Install dependencies
 pip install -r requirements.txt
 
-# 4️⃣ Install browser drivers
-playwright install chromium
+# 4️⃣ Install Playwright browser (only if needed)
+PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright install chromium
 
-# 5️⃣ Initialize database
-python src/core/database_init.py init
+# Troubleshooting
+# - Download is slow/fails (CN network): set `PLAYWRIGHT_DOWNLOAD_HOST=https://npmmirror.com/mirrors/playwright`
 
-# 6️⃣ Start the program
+# 5️⃣ Start the program (DB auto-inits on first launch)
 python main.py
 ```
 
@@ -211,72 +232,47 @@ flowchart LR
 </div>
 
 ### 📝 Detailed Steps
-
+	
 1. **🚀 Launch Program**
    - Run `python main.py` or double-click executable
    - Wait for program initialization
+	
+2. **👥 User Management (Optional)**
+   - Sidebar “👥” supports create/switch/delete users
+   - Login state, browser environments, cookies/tokens are isolated per user
 
-2. **👤 User Management**
-   - Click "User Management" button
-   - Add new users or switch existing users
-   - Configure proxy and browser fingerprints (optional)
-
-3. **📱 Account Login**
+3. **🌐 Browser Environment (Optional)**
+   - Sidebar “🌐” lets you create environments and set a “⭐ default environment”
+   - The default environment’s proxy + basic fingerprint will be applied to publishing sessions (UA/viewport/locale/timezone/geolocation, etc.)
+	
+4. **📱 Account Login**
    - Enter phone number
    - Receive and enter verification code
    - System automatically saves login status
-
-4. **✍️ Content Creation**
+	
+5. **✍️ Content Creation**
    - Enter creation topic in the input box
    - Click "Generate Content" button
    - AI automatically generates title and content
-
-5. **🖼️ Image Processing**
+	
+6. **🖼️ Image Processing**
    - System automatically matches relevant images
    - Manually upload custom images
    - Support batch image processing
-
-6. **👀 Preview & Publish**
+	
+7. **👀 Preview & Publish**
    - Click "Preview Publish" to check content
    - Confirm content and click publish
    - Support scheduled publishing
 
 ---
 
-## 🎨 Interface Preview
+## 🤖 Custom Model & Templates
 
-<div align="center">
-
-<table>
-<tr>
-<td align="center">
-<img src="./images/main_ui.png" width="300"/>
-<br/>
-<strong>🏠 Main Interface</strong>
-</td>
-<td align="center">
-<img src="./images/user_management.png" width="300"/>
-<br/>
-<strong>👤 User Management</strong>
-</td>
-</tr>
-<tr>
-<td align="center">
-<img src="./images/content_generation.png" width="300"/>
-<br/>
-<strong>🤖 Content Generation</strong>
-</td>
-<td align="center">
-<img src="./images/publish_preview.png" width="300"/>
-<br/>
-<strong>📤 Publish Preview</strong>
-</td>
-</tr>
-</table>
-
-</div>
-
----
+- Entry: Sidebar “⚙️ Backend Config” → “AI Model”
+- API Key: Saved to `~/.xhs_system/keys.enc` by default (so `settings.json` won’t keep plaintext keys)
+- Prompt Template: Select from the dropdown; template files live in `templates/prompts/`
+- Remote workflow: Disabled by default; generation uses your configured model or a built-in fallback
 
 ## 🔧 Advanced Configuration
 
@@ -312,6 +308,8 @@ PUBLISH_CONFIG = {
 
 ### 🌐 Proxy Configuration
 
+> Proxy/fingerprint management is still being finalized and is not yet reliably applied to the publishing browser session.
+
 Supports multiple proxy types:
 - 🔗 **HTTP Proxy**
 - 🔒 **HTTPS Proxy** 
@@ -329,8 +327,8 @@ Supports multiple proxy types:
 </div>
 
 - [x] ✅ **Basic Features**: Content generation and publishing
-- [x] ✅ **User Management**: Multi-account support
-- [x] ✅ **Proxy Configuration**: Network proxy support
+- [ ] 🔄 **User Management**: Multi-account (UI entry not completed yet)
+- [ ] 🔄 **Proxy/Fingerprint**: Config management + browser-session integration
 - [ ] 🔄 **Content Library**: Material management system
 - [ ] 🔄 **Template Library**: Preset template system
 - [ ] 🔄 **Data Analytics**: Publishing performance analysis

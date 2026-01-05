@@ -4,8 +4,10 @@ import time
 import json
 import os
 import sys
+import subprocess
 import logging
 import asyncio
+from glob import glob
 from PyQt5.QtWidgets import QInputDialog, QLineEdit
 from PyQt5.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
 from PyQt5.QtWidgets import QApplication
@@ -47,15 +49,297 @@ class VerificationCodeHandler(QObject):
             self.code = ""
 
 class XiaohongshuPoster:
-    def __init__(self):
+    def __init__(self, user_id: int = None, browser_environment=None):
         self.playwright = None
         self.browser = None
         self.context = None
         self.page = None
         self.verification_handler = VerificationCodeHandler()
         self.loop = None
+        self.user_id = user_id
+        self.browser_environment = browser_environment
         # 不再在初始化时调用 initialize，而是让调用者显式调用
-        
+
+    def _get_env_value(self, key, default=None):
+        env = self.browser_environment
+        if env is None:
+            return default
+        if isinstance(env, dict):
+            return env.get(key, default)
+        return getattr(env, key, default)
+
+    def _get_user_storage_dir(self) -> str:
+        home_dir = os.path.expanduser('~')
+        base_dir = os.path.join(home_dir, '.xhs_system')
+        if self.user_id is None:
+            return base_dir
+        return os.path.join(base_dir, "users", str(self.user_id))
+
+    def _build_playwright_proxy(self):
+        if not self.browser_environment:
+            return None
+
+        proxy_enabled = bool(self._get_env_value("proxy_enabled", False))
+        proxy_type = (self._get_env_value("proxy_type") or "").strip()
+        if not proxy_enabled or not proxy_type or proxy_type == "direct":
+            return None
+
+        host = self._get_env_value("proxy_host")
+        port = self._get_env_value("proxy_port")
+        if not host or not port:
+            return None
+
+        scheme = proxy_type
+        if scheme == "https":
+            scheme = "http"
+
+        proxy = {"server": f"{scheme}://{host}:{int(port)}"}
+        username = self._get_env_value("proxy_username")
+        password = self._get_env_value("proxy_password")
+        if username:
+            proxy["username"] = str(username)
+        if password:
+            proxy["password"] = str(password)
+        return proxy
+
+    def _build_context_options(self):
+        options = {"permissions": ["geolocation"]}
+
+        ua = self._get_env_value("user_agent")
+        if ua:
+            options["user_agent"] = ua
+
+        try:
+            vw = int(self._get_env_value("viewport_width", 0) or 0)
+            vh = int(self._get_env_value("viewport_height", 0) or 0)
+            if vw > 0 and vh > 0:
+                options["viewport"] = {"width": vw, "height": vh}
+        except Exception:
+            pass
+
+        try:
+            sw = int(self._get_env_value("screen_width", 0) or 0)
+            sh = int(self._get_env_value("screen_height", 0) or 0)
+            if sw > 0 and sh > 0:
+                options["screen"] = {"width": sw, "height": sh}
+        except Exception:
+            pass
+
+        locale = self._get_env_value("locale")
+        if locale:
+            options["locale"] = locale
+
+        tz = self._get_env_value("timezone")
+        if tz:
+            options["timezone_id"] = tz
+
+        lat = self._get_env_value("geolocation_latitude")
+        lng = self._get_env_value("geolocation_longitude")
+        if lat and lng:
+            try:
+                options["geolocation"] = {"latitude": float(lat), "longitude": float(lng)}
+            except Exception:
+                pass
+
+        return options
+
+    def _candidate_ms_playwright_dirs(self):
+        """返回可能存在 Playwright 浏览器缓存的目录列表（按优先级排序）。"""
+        candidates = []
+
+        home_dir = os.path.expanduser("~")
+
+        # 项目自用目录（更不容易被系统清理）
+        candidates.append(os.path.join(home_dir, ".xhs_system", "ms-playwright"))
+
+        # Playwright 默认缓存目录
+        if sys.platform == "win32":
+            local_app_data = os.environ.get("LOCALAPPDATA") or os.path.join(home_dir, "AppData", "Local")
+            candidates.append(os.path.join(local_app_data, "ms-playwright"))
+        elif sys.platform == "darwin":
+            candidates.append(os.path.join(home_dir, "Library", "Caches", "ms-playwright"))
+        else:
+            candidates.append(os.path.join(home_dir, ".cache", "ms-playwright"))
+
+        # 打包版本：浏览器可能随应用一起带在 ms-playwright
+        if getattr(sys, "frozen", False):
+            if sys.platform == "win32":
+                base_dir = getattr(sys, "_MEIPASS", None) or os.path.dirname(sys.executable)
+                candidates.insert(0, os.path.join(base_dir, "ms-playwright"))
+            elif sys.platform == "darwin":
+                executable_dir = os.path.dirname(sys.executable)
+                # DMG / .app 两种常见结构
+                candidates.insert(0, os.path.join(executable_dir, "ms-playwright"))
+                candidates.insert(0, os.path.join(executable_dir, "Contents", "MacOS", "ms-playwright"))
+
+        # 去重并过滤不存在的目录
+        seen = set()
+        result = []
+        for path in candidates:
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            if os.path.exists(path):
+                result.append(path)
+        return result
+
+    def _find_chromium_executable_under(self, root_dir: str):
+        """在指定 ms-playwright 目录内查找 Chromium 可执行文件。"""
+        if not root_dir or not os.path.exists(root_dir):
+            return None
+
+        if sys.platform == "win32":
+            direct = os.path.join(root_dir, "chrome-win", "chrome.exe")
+            if os.path.exists(direct):
+                return direct
+
+            candidates = glob(os.path.join(root_dir, "chromium-*", "chrome-win", "chrome.exe"))
+            candidates.sort(reverse=True)
+            for path in candidates:
+                if os.path.exists(path):
+                    return path
+
+            for dirpath, _, filenames in os.walk(root_dir):
+                if "chrome.exe" in filenames:
+                    return os.path.join(dirpath, "chrome.exe")
+
+        elif sys.platform == "darwin":
+            candidates = glob(
+                os.path.join(
+                    root_dir,
+                    "chromium-*",
+                    "chrome-mac",
+                    "Chromium.app",
+                    "Contents",
+                    "MacOS",
+                    "Chromium",
+                )
+            )
+            candidates.sort(reverse=True)
+            for path in candidates:
+                if os.path.exists(path):
+                    return path
+
+            for dirpath, _, filenames in os.walk(root_dir):
+                if "Chromium" in filenames and dirpath.endswith(os.path.join("Contents", "MacOS")):
+                    return os.path.join(dirpath, "Chromium")
+
+        else:
+            candidates = glob(os.path.join(root_dir, "chromium-*", "chrome-linux", "chrome"))
+            candidates.sort(reverse=True)
+            for path in candidates:
+                if os.path.exists(path):
+                    return path
+
+            for dirpath, _, filenames in os.walk(root_dir):
+                if "chrome" in filenames:
+                    return os.path.join(dirpath, "chrome")
+
+        return None
+
+    def _find_playwright_chromium_executable(self):
+        for root in self._candidate_ms_playwright_dirs():
+            found = self._find_chromium_executable_under(root)
+            if found:
+                return found
+        return None
+
+    def _detect_windows_browser_channel(self):
+        """检测系统安装的浏览器通道（避免 Playwright 缓存被清理导致无法启动）。"""
+        if sys.platform != "win32":
+            return None
+
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        local_app_data = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+
+        chrome_paths = [
+            os.path.join(program_files, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(program_files_x86, "Google", "Chrome", "Application", "chrome.exe"),
+            os.path.join(local_app_data, "Google", "Chrome", "Application", "chrome.exe"),
+        ]
+        if any(os.path.exists(p) for p in chrome_paths):
+            return "chrome"
+
+        edge_paths = [
+            os.path.join(program_files_x86, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(program_files, "Microsoft", "Edge", "Application", "msedge.exe"),
+            os.path.join(local_app_data, "Microsoft", "Edge", "Application", "msedge.exe"),
+        ]
+        if any(os.path.exists(p) for p in edge_paths):
+            return "msedge"
+
+        return None
+
+    def _is_missing_executable_error(self, err) -> bool:
+        if not err:
+            return False
+        msg = str(err)
+        keywords = [
+            "Executable doesn't exist",
+            "executable doesn't exist",
+            "chromium",
+            "browserType.launch",
+        ]
+        if "Executable doesn't exist" in msg or "executable doesn't exist" in msg:
+            return True
+        # 一些本地化/兼容错误文案
+        if ("找不到" in msg or "不存在" in msg) and "Executable" in msg:
+            return True
+        # 兜底：出现 chromium 且无法找到可执行文件时也尝试修复
+        return "chromium" in msg and ("not found" in msg.lower() or "不存在" in msg or "找不到" in msg)
+
+    def _get_playwright_browsers_path(self) -> str:
+        return os.environ.get(
+            "PLAYWRIGHT_BROWSERS_PATH",
+            os.path.join(os.path.expanduser("~"), ".xhs_system", "ms-playwright"),
+        )
+
+    async def _auto_install_playwright_chromium(self) -> bool:
+        """检测到 Playwright 浏览器缺失时尝试自动安装（打包版不执行）。"""
+        if getattr(sys, "frozen", False):
+            return False
+
+        browsers_path = self._get_playwright_browsers_path()
+        try:
+            os.makedirs(browsers_path, exist_ok=True)
+        except Exception:
+            pass
+
+        env = os.environ.copy()
+        env.setdefault("PLAYWRIGHT_BROWSERS_PATH", browsers_path)
+        if sys.platform == "win32":
+            env.setdefault("PLAYWRIGHT_DOWNLOAD_HOST", "https://npmmirror.com/mirrors/playwright")
+
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+        print("🔧 检测到浏览器缺失，尝试自动安装 Playwright Chromium（可能需要几分钟）...")
+
+        def _run():
+            return subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        try:
+            if loop:
+                result = await loop.run_in_executor(None, _run)
+            else:
+                result = _run()
+        except Exception as e:
+            print(f"❌ 自动安装失败: {e}")
+            return False
+
+        if result.returncode == 0:
+            print("✅ Playwright Chromium 自动安装完成")
+            return True
+
+        stderr = (result.stderr or "").strip()
+        if stderr:
+            print(f"❌ 自动安装失败: {stderr[:800]}")
+        return False
+	        
     async def initialize(self):
         """初始化浏览器"""
         if self.playwright is not None:
@@ -68,6 +352,8 @@ class XiaohongshuPoster:
             # 获取可执行文件所在目录
             launch_args = {
                 'headless': False,
+                # 部分机器/环境启动较慢，适当拉长超时避免“偶发启动失败”
+                'timeout': 60_000,
                 'args': [
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
@@ -87,78 +373,114 @@ class XiaohongshuPoster:
                 ]
             }
 
-            chromium_path = None
+            proxy = self._build_playwright_proxy()
+            if proxy:
+                launch_args["proxy"] = proxy
 
-            if getattr(sys, 'frozen', False):
-                # 如果是打包后的可执行文件
-                executable_dir = os.path.dirname(sys.executable)
-                logging.debug(f"executable_dir: {executable_dir}")
-                if sys.platform == 'darwin':  # macOS系统
-                    if 'XhsAi' in executable_dir:
-                        # 如果在 DMG 中运行
-                        browser_path = os.path.join(
-                            executable_dir, "ms-playwright")
-                    else:
-                        # 如果已经安装到应用程序文件夹
-                        browser_path = os.path.join(
-                            executable_dir, "Contents", "MacOS", "ms-playwright")
-                    logging.debug(f"浏览器路径: {browser_path}")
-                    chromium_path = os.path.join(
-                        browser_path, "chromium-1161/chrome-mac/Chromium.app/Contents/MacOS/Chromium")
-                else:
-                    # Windows系统
-                    executable_dir = sys._MEIPASS
-                    print(f"临时解压目录: {executable_dir}")
-                    browser_path = os.path.join(executable_dir, "ms-playwright")
-                    print(f"浏览器路径: {browser_path}")
-                    chromium_path = os.path.join(
-                        browser_path, "chrome-win", "chrome.exe")
-                    logging.debug(f"Chromium 路径: {chromium_path}")
-            logging.debug(f"Chromium 路径: {chromium_path}")
-            if chromium_path:
-                # 确保浏览器文件存在且有执行权限
-                if os.path.exists(chromium_path):
-                    os.chmod(chromium_path, 0o755)
-                    launch_args['executable_path'] = chromium_path
-                else:
-                    raise Exception(f"浏览器文件不存在: {chromium_path}")
+            executable_path = None
+            channel = None
 
-            # 尝试使用系统Chrome，如果失败再使用Chromium
-            try:
-                # 检查系统Chrome路径
+            # macOS：优先使用系统 Chrome（更稳定），否则尝试 Playwright 缓存
+            if sys.platform == "darwin":
                 system_chrome_paths = [
-                    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-                    '/Applications/Chromium.app/Contents/MacOS/Chromium'
+                    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                    "/Applications/Chromium.app/Contents/MacOS/Chromium",
                 ]
-                
-                chrome_found = False
                 for chrome_path in system_chrome_paths:
                     if os.path.exists(chrome_path):
-                        launch_args['executable_path'] = chrome_path
-                        chrome_found = True
+                        executable_path = chrome_path
                         print(f"使用系统Chrome: {chrome_path}")
                         break
-                
-                if not chrome_found and chromium_path and os.path.exists(chromium_path):
-                    launch_args['executable_path'] = chromium_path
-                    print(f"使用打包Chromium: {chromium_path}")
-                
-                self.browser = await self.playwright.chromium.launch(**launch_args)
-            except Exception as e:
-                # 如果指定路径失败，移除executable_path让playwright使用默认路径
-                print(f"指定路径启动失败: {e}")
-                if 'executable_path' in launch_args:
-                    del launch_args['executable_path']
-                self.browser = await self.playwright.chromium.launch(**launch_args)
-            # 创建新的上下文时设置权限
-            self.context = await self.browser.new_context(
-                permissions=['geolocation']  # 自动允许位置信息访问
-            )
+
+            # 优先尝试 Playwright 已下载/随包附带的 Chromium
+            if not executable_path:
+                executable_path = self._find_playwright_chromium_executable()
+                if executable_path:
+                    print(f"使用Playwright Chromium: {executable_path}")
+
+            # Windows：如果 Playwright 缓存缺失，退回使用系统 Chrome/Edge 通道
+            if sys.platform == "win32" and not executable_path:
+                channel = self._detect_windows_browser_channel()
+                if channel:
+                    print(f"使用系统浏览器通道: {channel}")
+
+            launch_attempts = []
+            if executable_path:
+                try:
+                    os.chmod(executable_path, 0o755)
+                except Exception:
+                    pass
+                args_with_path = dict(launch_args)
+                args_with_path["executable_path"] = executable_path
+                launch_attempts.append(args_with_path)
+
+            if channel:
+                args_with_channel = dict(launch_args)
+                args_with_channel["channel"] = channel
+                launch_attempts.append(args_with_channel)
+
+            # 最后尝试 Playwright 默认路径
+            launch_attempts.append(dict(launch_args))
+
+            last_error = None
+            for attempt in launch_attempts:
+                try:
+                    self.browser = await self.playwright.chromium.launch(**attempt)
+                    break
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            if not self.browser:
+                # 自愈：Playwright 浏览器缺失时尝试自动安装再重试一次（开发/源码运行场景）
+                if self._is_missing_executable_error(last_error) and await self._auto_install_playwright_chromium():
+                    executable_path = self._find_playwright_chromium_executable()
+                    launch_attempts_retry = []
+
+                    if executable_path:
+                        try:
+                            os.chmod(executable_path, 0o755)
+                        except Exception:
+                            pass
+                        args_with_path = dict(launch_args)
+                        args_with_path["executable_path"] = executable_path
+                        launch_attempts_retry.append(args_with_path)
+
+                    if channel:
+                        args_with_channel = dict(launch_args)
+                        args_with_channel["channel"] = channel
+                        launch_attempts_retry.append(args_with_channel)
+
+                    launch_attempts_retry.append(dict(launch_args))
+
+                    last_error = None
+                    for attempt in launch_attempts_retry:
+                        try:
+                            self.browser = await self.playwright.chromium.launch(**attempt)
+                            break
+                        except Exception as e:
+                            last_error = e
+
+                if not self.browser:
+                    raise last_error
+
+            # 创建新的上下文（应用指纹/地理位置等）
+            self.context = await self.browser.new_context(**self._build_context_options())
             self.page = await self.context.new_page()
             
             # 注入stealth.min.js
+            webgl_vendor = self._get_env_value("webgl_vendor") or "Intel Open Source Technology Center"
+            webgl_renderer = self._get_env_value("webgl_renderer") or "Mesa DRI Intel(R) HD Graphics (SKL GT2)"
+            platform = self._get_env_value("platform") or ""
+            webgl_vendor_js = json.dumps(webgl_vendor, ensure_ascii=False)
+            webgl_renderer_js = json.dumps(webgl_renderer, ensure_ascii=False)
+            platform_js = json.dumps(platform, ensure_ascii=False)
             stealth_js = """
             (function(){
+                const __xhs_webgl_vendor = %s;
+                const __xhs_webgl_renderer = %s;
+                const __xhs_platform = %s;
+
                 const originalQuery = window.navigator.permissions.query;
                 window.navigator.permissions.query = (parameters) => (
                     parameters.name === 'notifications' ?
@@ -169,13 +491,19 @@ class XiaohongshuPoster:
                 const getParameter = WebGLRenderingContext.prototype.getParameter;
                 WebGLRenderingContext.prototype.getParameter = function(parameter) {
                     if (parameter === 37445) {
-                        return 'Intel Open Source Technology Center';
+                        return __xhs_webgl_vendor;
                     }
                     if (parameter === 37446) {
-                        return 'Mesa DRI Intel(R) HD Graphics (SKL GT2)';
+                        return __xhs_webgl_renderer;
                     }
                     return getParameter.apply(this, arguments);
                 };
+
+                if (__xhs_platform) {
+                    try {
+                        Object.defineProperty(navigator, 'platform', { get: () => __xhs_platform });
+                    } catch (e) {}
+                }
                 
                 const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
                 Element.prototype.getBoundingClientRect = function() {
@@ -230,17 +558,15 @@ class XiaohongshuPoster:
                     }
                 });
             })();
-            """
+            """ % (webgl_vendor_js, webgl_renderer_js, platform_js)
             await self.page.add_init_script(stealth_js)
             
             print("浏览器启动成功！")
             logging.debug("浏览器启动成功！")
             
-            # 获取用户主目录
-            home_dir = os.path.expanduser('~')
-            app_dir = os.path.join(home_dir, '.xhs_system')
-            if not os.path.exists(app_dir):
-                os.makedirs(app_dir)
+            # 获取用户数据目录（多用户隔离 token/cookies）
+            app_dir = self._get_user_storage_dir()
+            os.makedirs(app_dir, exist_ok=True)
 
             # 设置token和cookies文件路径
             self.token_file = os.path.join(app_dir, "xiaohongshu_token.json")

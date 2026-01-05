@@ -11,6 +11,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QDialog, QTextEdit, QMessageBox, QTabWidget,
                              QCheckBox, QComboBox, QSpinBox, QLineEdit)
 
+from src.core.ui.qt_font import get_ui_font_family
+
 # 导入服务类
 try:
     from ..services.browser_environment_service import browser_environment_service
@@ -60,7 +62,7 @@ class BrowserEnvironmentDialog(QDialog):
         self.setFixedSize(1100, 750)  # 进一步增大对话框尺寸，更宽敞
         
         # 设置全局字体
-        self.default_font = QFont("Microsoft YaHei", 12)  # 增大字体到12号
+        self.default_font = QFont(get_ui_font_family(), 12)  # 增大字体到12号
         self.setFont(self.default_font)
         
         self.init_ui()
@@ -71,7 +73,7 @@ class BrowserEnvironmentDialog(QDialog):
         layout.setSpacing(15)
         
         title_label = QLabel("🌐 浏览器环境配置")
-        title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Bold))  # 标题更大字体
+        title_label.setFont(QFont(get_ui_font_family(), 18, QFont.Bold))  # 标题更大字体
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
         
@@ -99,14 +101,14 @@ class BrowserEnvironmentDialog(QDialog):
         button_layout = QHBoxLayout()
         
         preset_btn = QPushButton("📋 加载预设")
-        preset_btn.setFont(QFont("Microsoft YaHei", 12))  # 按钮字体
+        preset_btn.setFont(QFont(get_ui_font_family(), 12))  # 按钮字体
         preset_btn.setMinimumHeight(35)
         preset_btn.setMinimumWidth(100)  # 增加按钮宽度
         preset_btn.clicked.connect(self.load_preset)
         button_layout.addWidget(preset_btn)
         
         random_btn = QPushButton("🎲 随机生成")
-        random_btn.setFont(QFont("Microsoft YaHei", 12))  # 按钮字体
+        random_btn.setFont(QFont(get_ui_font_family(), 12))  # 按钮字体
         random_btn.setMinimumHeight(35)
         random_btn.setMinimumWidth(100)
         random_btn.clicked.connect(self.generate_random)
@@ -115,14 +117,14 @@ class BrowserEnvironmentDialog(QDialog):
         button_layout.addStretch()
         
         cancel_btn = QPushButton("❌ 取消")  # 添加图标
-        cancel_btn.setFont(QFont("Microsoft YaHei", 12))  # 按钮字体
+        cancel_btn.setFont(QFont(get_ui_font_family(), 12))  # 按钮字体
         cancel_btn.setMinimumHeight(35)
         cancel_btn.setMinimumWidth(80)
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
         
         ok_btn = QPushButton("✅ 确定")  # 添加图标
-        ok_btn.setFont(QFont("Microsoft YaHei", 12))  # 按钮字体
+        ok_btn.setFont(QFont(get_ui_font_family(), 12))  # 按钮字体
         ok_btn.setMinimumHeight(35)
         ok_btn.setMinimumWidth(80)
         ok_btn.clicked.connect(self.accept)
@@ -259,7 +261,7 @@ class BrowserEnvironmentDialog(QDialog):
         layout = QVBoxLayout(self.json_tab)
         
         info_label = QLabel("📝 您也可以直接编辑JSON配置:")
-        info_label.setFont(QFont("Microsoft YaHei", 12))
+        info_label.setFont(QFont(get_ui_font_family(), 12))
         layout.addWidget(info_label)
         
         self.json_edit = QTextEdit()
@@ -269,12 +271,12 @@ class BrowserEnvironmentDialog(QDialog):
         sync_layout = QHBoxLayout()
         
         form_to_json_btn = QPushButton("表单 → JSON")
-        form_to_json_btn.setFont(QFont("Microsoft YaHei", 12))
+        form_to_json_btn.setFont(QFont(get_ui_font_family(), 12))
         form_to_json_btn.clicked.connect(self.form_to_json)
         sync_layout.addWidget(form_to_json_btn)
         
         json_to_form_btn = QPushButton("JSON → 表单")
-        json_to_form_btn.setFont(QFont("Microsoft YaHei", 12))
+        json_to_form_btn.setFont(QFont(get_ui_font_family(), 12))
         json_to_form_btn.clicked.connect(self.json_to_form)
         sync_layout.addWidget(json_to_form_btn)
         
@@ -439,7 +441,7 @@ class BrowserEnvironmentPage(QWidget):
         layout.setSpacing(20)
         
         # 设置页面字体
-        page_font = QFont("Microsoft YaHei", 12)
+        page_font = QFont(get_ui_font_family(), 12)
         self.setFont(page_font)
         
         # 添加服务状态指示器
@@ -457,14 +459,14 @@ class BrowserEnvironmentPage(QWidget):
         
         # 添加刷新按钮
         refresh_btn = QPushButton("🔄 刷新数据")
-        refresh_btn.setFont(QFont("Microsoft YaHei", 12))
+        refresh_btn.setFont(QFont(get_ui_font_family(), 12))
         refresh_btn.clicked.connect(self.load_data)
         status_layout.addWidget(refresh_btn)
         
         layout.addLayout(status_layout)
         
         title = QLabel("🌐 浏览器环境管理")
-        title.setFont(QFont("Microsoft YaHei", 28, QFont.Bold))  # 主标题更大
+        title.setFont(QFont(get_ui_font_family(), 28, QFont.Bold))  # 主标题更大
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         
@@ -475,10 +477,10 @@ class BrowserEnvironmentPage(QWidget):
             "ID", "环境名称", "代理状态", "代理配置", "浏览器", "分辨率", "平台", "操作"
         ])
         # 设置表格字体
-        table_font = QFont("Microsoft YaHei", 11)
+        table_font = QFont(get_ui_font_family(), 11)
         self.environments_table.setFont(table_font)
         # 设置表头字体
-        header_font = QFont("Microsoft YaHei", 12, QFont.Bold)
+        header_font = QFont(get_ui_font_family(), 12, QFont.Bold)
         self.environments_table.horizontalHeader().setFont(header_font)
         # 调整行高
         self.environments_table.verticalHeader().setDefaultSectionSize(35)
@@ -502,21 +504,21 @@ class BrowserEnvironmentPage(QWidget):
         button_layout = QHBoxLayout()
         
         add_env_btn = QPushButton("➕ 添加环境")
-        add_env_btn.setFont(QFont("Microsoft YaHei", 12))
+        add_env_btn.setFont(QFont(get_ui_font_family(), 12))
         add_env_btn.setMinimumHeight(40)  # 增加按钮高度
         add_env_btn.setMinimumWidth(120)  # 增加按钮宽度
         add_env_btn.clicked.connect(self.add_environment)
         button_layout.addWidget(add_env_btn)
         
         preset_btn = QPushButton("📋 创建预设")
-        preset_btn.setFont(QFont("Microsoft YaHei", 12))
+        preset_btn.setFont(QFont(get_ui_font_family(), 12))
         preset_btn.setMinimumHeight(40)
         preset_btn.setMinimumWidth(120)
         preset_btn.clicked.connect(self.create_presets)
         button_layout.addWidget(preset_btn)
         
         test_btn = QPushButton("🧪 测试所有")
-        test_btn.setFont(QFont("Microsoft YaHei", 12))
+        test_btn.setFont(QFont(get_ui_font_family(), 12))
         test_btn.setMinimumHeight(40)
         test_btn.setMinimumWidth(120)
         test_btn.clicked.connect(self.test_all_environments)
@@ -538,12 +540,25 @@ class BrowserEnvironmentPage(QWidget):
     def load_environments(self):
         """加载环境配置"""
         try:
-            environments = self.environment_service.get_all()
+            user_id = None
+            if USE_REAL_SERVICES:
+                try:
+                    from ..services.user_service import user_service
+                    current_user = user_service.get_current_user()
+                    user_id = current_user.id if current_user else None
+                except Exception:
+                    user_id = None
+
+            environments = self.environment_service.get_all(user_id=user_id)
             
             self.environments_table.setRowCount(len(environments))
             for row, env in enumerate(environments):
                 self.environments_table.setItem(row, 0, QTableWidgetItem(str(env.get('id', ''))))
-                self.environments_table.setItem(row, 1, QTableWidgetItem(env.get('name', '')))
+
+                env_name = env.get('name', '')
+                if env.get('is_default'):
+                    env_name = f"⭐ {env_name}"
+                self.environments_table.setItem(row, 1, QTableWidgetItem(env_name))
                 
                 # 代理状态
                 proxy_status = "✅ 启用" if env.get('proxy_enabled') else "❌ 直连"
@@ -569,23 +584,31 @@ class BrowserEnvironmentPage(QWidget):
                 # 操作按钮
                 button_layout = QHBoxLayout()
                 button_layout.setSpacing(5)  # 减小按钮间距
+
+                default_btn = QPushButton("⭐ 默认")
+                default_btn.setFont(QFont(get_ui_font_family(), 10))
+                default_btn.setMinimumHeight(28)
+                default_btn.setMinimumWidth(50)
+                default_btn.setEnabled(not bool(env.get('is_default')))
+                default_btn.clicked.connect(lambda checked, e=env: self.set_default_environment(e))
+                button_layout.addWidget(default_btn)
                 
                 edit_btn = QPushButton("📝 编辑")  # 添加图标让按钮更美观
-                edit_btn.setFont(QFont("Microsoft YaHei", 10))
+                edit_btn.setFont(QFont(get_ui_font_family(), 10))
                 edit_btn.setMinimumHeight(28)
                 edit_btn.setMinimumWidth(50)  # 设置最小宽度
                 edit_btn.clicked.connect(lambda checked, e=env: self.edit_environment(e))
                 button_layout.addWidget(edit_btn)
                 
                 test_btn = QPushButton("🧪 测试")
-                test_btn.setFont(QFont("Microsoft YaHei", 10))
+                test_btn.setFont(QFont(get_ui_font_family(), 10))
                 test_btn.setMinimumHeight(28)
                 test_btn.setMinimumWidth(50)
                 test_btn.clicked.connect(lambda checked, e=env: self.test_environment(e))
                 button_layout.addWidget(test_btn)
                 
                 delete_btn = QPushButton("🗑️ 删除")
-                delete_btn.setFont(QFont("Microsoft YaHei", 10))
+                delete_btn.setFont(QFont(get_ui_font_family(), 10))
                 delete_btn.setMinimumHeight(28)
                 delete_btn.setMinimumWidth(50)
                 delete_btn.clicked.connect(lambda checked, e=env: self.delete_environment(e))
@@ -598,6 +621,26 @@ class BrowserEnvironmentPage(QWidget):
         except Exception as e:
             print(f"❌ 加载环境数据失败: {e}")
             QMessageBox.warning(self, "加载失败", f"加载环境数据时出错：{str(e)}")
+
+    def set_default_environment(self, env):
+        """设置默认环境配置"""
+        if not USE_REAL_SERVICES:
+            QMessageBox.information(self, "Mock模式", "Mock模式下不支持设置默认环境")
+            return
+
+        try:
+            from ..services.user_service import user_service
+
+            current_user = user_service.get_current_user()
+            if not current_user:
+                QMessageBox.warning(self, "错误", "请先创建并选择一个用户作为当前用户")
+                return
+
+            self.environment_service.set_default_environment(current_user.id, env.get('id'))
+            self.load_environments()
+            QMessageBox.information(self, "成功", "已设置为默认环境")
+        except Exception as e:
+            QMessageBox.warning(self, "失败", f"设置默认环境失败：{str(e)}")
 
     def add_environment(self):
         """添加环境配置"""

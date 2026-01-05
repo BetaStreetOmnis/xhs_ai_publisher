@@ -1,0 +1,298 @@
+{
+  "templates": [
+    {
+      "id": "edu_grade_card",
+      "name": "年级科目卡片",
+      "category": "education",
+      "regions": [
+        "grade",
+        "subject",
+        "divider",
+        "main_text",
+        "sub_text"
+      ],
+      "design": "geometric_corners"
+    },
+    {
+      "id": "edu_exam_focus",
+      "name": "考试重点",
+      "category": "education",
+      "regions": [
+        "title",
+        "badge",
+        "points",
+        "highlight",
+        "footer"
+      ],
+      "design": "central_focus"
+    },
+    {
+      "id": "edu_course_intro",
+      "name": "课程介绍",
+      "category": "education",
+      "regions": [
+        "course_name",
+        "level",
+        "features",
+        "call_to_action"
+      ],
+      "design": "sidebar_accent"
+    },
+    {
+      "id": "biz_report_cover",
+      "name": "报告封面",
+      "category": "business",
+      "regions": [
+        "year",
+        "title",
+        "subtitle",
+        "department"
+      ],
+      "design": "minimal_lines"
+    },
+    {
+      "id": "biz_metrics_card",
+      "name": "数据指标卡",
+      "category": "business",
+      "regions": [
+        "metric_value",
+        "metric_name",
+        "change",
+        "period"
+      ],
+      "design": "data_focused"
+    },
+    {
+      "id": "biz_announcement",
+      "name": "公告通知",
+      "category": "business",
+      "regions": [
+        "header",
+        "title",
+        "content",
+        "date",
+        "signature"
+      ],
+      "design": "formal_frame"
+    },
+    {
+      "id": "mkt_promo_banner",
+      "name": "促销横幅",
+      "category": "marketing",
+      "regions": [
+        "discount",
+        "product",
+        "description",
+        "cta"
+      ],
+      "design": "dynamic_split"
+    },
+    {
+      "id": "mkt_event_invite",
+      "name": "活动邀请",
+      "category": "marketing",
+      "regions": [
+        "event_type",
+        "event_name",
+        "date_time",
+        "location",
+        "rsvp"
+      ],
+      "design": "elegant_centered"
+    },
+    {
+      "id": "mkt_product_showcase",
+      "name": "产品展示",
+      "category": "marketing",
+      "regions": [
+        "product_name",
+        "tagline",
+        "features",
+        "price",
+        "buy_now"
+      ],
+      "design": "product_hero"
+    },
+    {
+      "id": "social_quote_card",
+      "name": "金句卡片",
+      "category": "social",
+      "regions": [
+        "quote",
+        "author",
+        "decoration"
+      ],
+      "design": "quote_focused"
+    },
+    {
+      "id": "social_tips_list",
+      "name": "技巧清单",
+      "category": "social",
+      "regions": [
+        "title",
+        "number",
+        "tips",
+        "hashtag"
+      ],
+      "design": "numbered_list"
+    },
+    {
+      "id": "social_story_card",
+      "name": "故事卡片",
+      "category": "social",
+      "regions": [
+        "headline",
+        "story",
+        "moral"
+      ],
+      "design": "story_layout"
+    },
+    {
+      "id": "tech_feature_release",
+      "name": "功能发布",
+      "category": "tech",
+      "regions": [
+        "version",
+        "feature_name",
+        "description",
+        "benefits"
+      ],
+      "design": "tech_minimal"
+    },
+    {
+      "id": "tech_comparison",
+      "name": "对比图表",
+      "category": "tech",
+      "regions": [
+        "title",
+        "item1",
+        "vs",
+        "item2",
+        "details"
+      ],
+      "design": "comparison_split"
+    },
+    {
+      "id": "creative_mood_board",
+      "name": "情绪板",
+      "category": "creative",
+      "regions": [
+        "mood",
+        "elements",
+        "palette"
+      ],
+      "design": "artistic_free"
+    },
+    {
+      "id": "creative_poster",
+      "name": "创意海报",
+      "category": "creative",
+      "regions": [
+        "main_text",
+        "subtext",
+        "decoration"
+      ],
+      "design": "bold_typography"
+    },
+    {
+      "id": "minimal_text_only",
+      "name": "纯文字",
+      "category": "minimal",
+      "regions": [
+        "text"
+      ],
+      "design": "ultra_minimal"
+    },
+    {
+      "id": "minimal_with_accent",
+      "name": "简约强调",
+      "category": "minimal",
+      "regions": [
+        "main",
+        "accent_line",
+        "sub"
+      ],
+      "design": "minimal_accent"
+    },
+    {
+      "id": "grid_2x2",
+      "name": "2x2网格",
+      "category": "grid",
+      "regions": [
+        "item1",
+        "item2",
+        "item3",
+        "item4"
+      ],
+      "design": "grid_layout"
+    },
+    {
+      "id": "grid_feature_list",
+      "name": "特性列表",
+      "category": "grid",
+      "regions": [
+        "title",
+        "feature1",
+        "feature2",
+        "feature3",
+        "desc1",
+        "desc2",
+        "desc3"
+      ],
+      "design": "feature_grid"
+    },
+    {
+      "id": "timeline_vertical",
+      "name": "垂直时间线",
+      "category": "timeline",
+      "regions": [
+        "title",
+        "timeline",
+        "event1",
+        "date1",
+        "event2",
+        "date2",
+        "event3",
+        "date3"
+      ],
+      "design": "timeline_layout"
+    },
+    {
+      "id": "cert_achievement",
+      "name": "成就证书",
+      "category": "certificate",
+      "regions": [
+        "cert_title",
+        "recipient",
+        "achievement",
+        "date",
+        "signature",
+        "border"
+      ],
+      "design": "certificate_formal"
+    }
+  ],
+  "categories": [
+    "education",
+    "business",
+    "marketing",
+    "social",
+    "tech",
+    "creative",
+    "minimal",
+    "grid",
+    "timeline",
+    "certificate"
+  ],
+  "color_schemes": [
+    "professional",
+    "vibrant",
+    "elegant",
+    "tech",
+    "nature",
+    "warm",
+    "cool",
+    "monochrome"
+  ],
+  "total": 22
+}

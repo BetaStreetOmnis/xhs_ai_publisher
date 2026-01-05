@@ -1,0 +1,30 @@
+{
+  "name": "旅行模板",
+  "size": [1080, 1080],
+  "bg_color": "#E3F2FD",
+  "text_config": {
+    "main_title_pos": [60, 120],
+    "main_title_size": 84,
+    "main_title_color": "#1565C0",
+    "subtitle_pos": [60, 240],
+    "subtitle_size": 40,
+    "subtitle_color": "#455A64"
+  },
+  "tag_config": {
+    "start_y": 840,
+    "height": 46,
+    "margin": 12
+  },
+  "emoji_config": {
+    "position": [900, 90],
+    "size": 72
+  },
+  "decorations": [
+    {
+      "type": "circle",
+      "bbox": [[48, 60], [140, 152]],
+      "color": "#1565C0",
+      "width": 2
+    }
+  ]
+}

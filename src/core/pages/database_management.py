@@ -10,6 +10,8 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QPushButton, QTextEdit, QGroupBox, QProgressBar,
                              QMessageBox, QTabWidget, QTableWidget, QTableWidgetItem)
 
+from src.core.ui.qt_font import get_ui_font_family
+
 import json
 from datetime import datetime
 
@@ -74,7 +76,7 @@ class DatabaseManagementPage(QWidget):
         
         # 标题
         title = QLabel("🛠️ 数据库管理工具")
-        title.setFont(QFont("Microsoft YaHei", 24, QFont.Bold))
+        title.setFont(QFont(get_ui_font_family(), 24, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
         
@@ -106,7 +108,7 @@ class DatabaseManagementPage(QWidget):
         status_layout = QVBoxLayout(status_group)
         
         self.health_status_label = QLabel("🔄 正在检查...")
-        self.health_status_label.setFont(QFont("Microsoft YaHei", 12, QFont.Bold))
+        self.health_status_label.setFont(QFont(get_ui_font_family(), 12, QFont.Bold))
         status_layout.addWidget(self.health_status_label)
         
         self.health_details = QTextEdit()

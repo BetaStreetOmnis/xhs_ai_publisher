@@ -251,10 +251,10 @@ class TestRunner:
         
         # 建议
         print("\n\033[94m💡 使用建议:\033[0m")
-        print("  1. 运行单个测试文件: python test/unit/test_database.py")
-        print("  2. 运行所有测试: python -m pytest test/ -v")
-        print("  3. 生成HTML报告: python -m pytest test/ --html=reports/test_report.html")
-        print("  4. 查看覆盖率: python -m pytest test/ --cov=src --cov-report=html")
+        print("  1. 运行单个测试文件: python tests/unit/test_database.py")
+        print("  2. 运行所有测试: python -m pytest tests/ -v")
+        print("  3. 生成HTML报告: python -m pytest tests/ --html=reports/test_report.html")
+        print("  4. 查看覆盖率: python -m pytest tests/ --cov=src --cov-report=html")
 
 if __name__ == '__main__':
     runner = TestRunner()

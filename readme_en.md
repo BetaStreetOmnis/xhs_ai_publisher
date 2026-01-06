@@ -2,9 +2,9 @@
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/🐍_Python-3.9+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
+<img src="https://img.shields.io/badge/🐍_Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
 <img src="https://img.shields.io/badge/📄_License-Apache_2.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white" alt="License"/>
-<img src="https://img.shields.io/badge/💻_Platform-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"/>
+<img src="https://img.shields.io/badge/💻_Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"/>
 <img src="https://img.shields.io/badge/🚀_Version-2.0.0-FF6B35?style=for-the-badge&logo=rocket&logoColor=white" alt="Version"/>
 
 <br/>
@@ -50,8 +50,9 @@
 - 📝 **Content Creation**: Auto-generate articles based on topics
 - 🔧 **Custom Models**: Configure OpenAI-compatible / Claude / Ollama endpoints for generation (falls back to built-in methods if not configured)
 - 🧩 **Prompt Templates**: Choose different writing styles via templates (`templates/prompts/*.json`), and extend them easily
+- 📊 **Hotspot Center**: Built-in hot lists (Weibo/Baidu/Toutiao/Bilibili), one-click to use as homepage topic
 - 🖼️ **Image Processing**: Smart image matching and processing
-- 🎨 **AI Cover (Experimental)**: Implemented (see `AI_COVER_GUIDE.md`), not yet exposed in the main UI navigation
+- 🖼️ **Cover/Content Templates**: Choose a template in “🖼️ Cover Center”; generation outputs a cover + multiple content images (one-click download)
 - 🏷️ **Tag Recommendations**: Auto-recommend trending tags
 
 </td>
@@ -60,7 +61,7 @@
 ### 🚀 Automated Publishing
 - 📱 **One-Click Login**: Quick login with phone number
 - 📋 **Content Preview**: Complete preview before publishing
-- ⏰ **Scheduled Publishing**: Support for timed publishing
+- ⏰ **Scheduled Publishing (Basic)**: Task management + trigger; execution is currently simulated (extendable to real publishing)
 - 💾 **State Saving**: Auto-save login status
 
 </td>
@@ -72,7 +73,7 @@
 - 🔄 **Multi-Account / Users**: Create/switch/delete users; login/session data is isolated per user
 - 🌐 **Proxy Configuration**: Applied to publishing sessions via default “browser environment” (Playwright proxy)
 - 🔍 **Browser Fingerprints**: Applied to publishing sessions (UA/viewport/locale/timezone/geolocation); deeper WebGL/canvas spoofing is still WIP
-- 📊 **Data Analytics**: Basic stats exist (tasks/contents/sessions); post-performance analytics is WIP
+- 🗂️ **Local Storage**: Users/environments/config/logs are stored locally under `~/.xhs_system/`
 
 </td>
 <td width="50%">
@@ -154,7 +155,7 @@
 
 ```bash
 # 1️⃣ Clone the repository
-git clone https://github.com/yourusername/xhs_ai_publisher.git
+git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
 cd xhs_ai_publisher
 
 # 2️⃣ Create virtual environment (recommended)
@@ -244,23 +245,31 @@ flowchart LR
 3. **🌐 Browser Environment (Optional)**
    - Sidebar “🌐” lets you create environments and set a “⭐ default environment”
    - The default environment’s proxy + basic fingerprint will be applied to publishing sessions (UA/viewport/locale/timezone/geolocation, etc.)
-	
-4. **📱 Account Login**
+
+4. **📊 Hotspot Center (Optional)**
+   - Sidebar “📊” shows hot lists from multiple platforms
+   - Select an item and click “✍️ Use as homepage topic” to generate from it
+
+5. **🖼️ Cover Templates (Optional)**
+   - Sidebar “🖼️” opens the cover template library; click “✅ Apply to homepage”
+   - Or use “🧩 Cover Template” button in the homepage preview area
+
+6. **📱 Account Login**
    - Enter phone number
    - Receive and enter verification code
    - System automatically saves login status
 	
-5. **✍️ Content Creation**
+7. **✍️ Content Creation**
    - Enter creation topic in the input box
    - Click "Generate Content" button
    - AI automatically generates title and content
 	
-6. **🖼️ Image Processing**
+8. **🖼️ Image Processing**
    - System automatically matches relevant images
    - Manually upload custom images
    - Support batch image processing
 	
-7. **👀 Preview & Publish**
+9. **👀 Preview & Publish**
    - Click "Preview Publish" to check content
    - Confirm content and click publish
    - Support scheduled publishing
@@ -272,49 +281,28 @@ flowchart LR
 - Entry: Sidebar “⚙️ Backend Config” → “AI Model”
 - API Key: Saved to `~/.xhs_system/keys.enc` by default (so `settings.json` won’t keep plaintext keys)
 - Prompt Template: Select from the dropdown; template files live in `templates/prompts/`
+- System image templates: Sidebar “⚙️ Backend Config” → “Templates” can select/import (imports external packs into `~/.xhs_system/system_templates` for cross-platform usage)
+- Cover templates: Sidebar “🖼️ Cover Center” applies a template to the homepage; generated images are cached in `~/.xhs_system/generated_imgs/` and can be downloaded from the homepage
 - Remote workflow: Disabled by default; generation uses your configured model or a built-in fallback
 
 ## 🔧 Advanced Configuration
 
-### ⚙️ Configuration Files
+### 📁 Data & Config Paths
 
-<details>
-<summary>📁 <strong>config.py - Main Configuration File</strong></summary>
+- `~/.xhs_system/settings.json`: app config (phone/title/model/templates, etc.)
+- `~/.xhs_system/keys.enc`: encrypted model API keys
+- `~/.xhs_system/xhs_data.db`: local DB (users/browser environments, etc.)
+- `~/.xhs_system/generated_imgs/`: generated image cache
+- `~/.xhs_system/ms-playwright/`: Playwright browser cache
+- `~/.xhs_system/logs/`: runtime logs
+- `~/.xhs_system/hotspots_cache.json`: hotspot cache
+- `~/.xhs_system/schedule_tasks.json`: scheduled tasks (basic)
 
-```python
-# AI Configuration
-AI_CONFIG = {
-    "model": "gpt-3.5-turbo",
-    "max_tokens": 2000,
-    "temperature": 0.7
-}
+### 🌐 Proxy/Fingerprint
 
-# Browser Configuration
-BROWSER_CONFIG = {
-    "headless": False,
-    "user_agent": "Mozilla/5.0...",
-    "viewport": {"width": 1920, "height": 1080}
-}
-
-# Publishing Configuration
-PUBLISH_CONFIG = {
-    "auto_publish": False,
-    "delay_range": [3, 8],
-    "max_retry": 3
-}
-```
-
-</details>
-
-### 🌐 Proxy Configuration
-
-> Proxy/fingerprint management is still being finalized and is not yet reliably applied to the publishing browser session.
-
-Supports multiple proxy types:
-- 🔗 **HTTP Proxy**
-- 🔒 **HTTPS Proxy** 
-- 🧅 **SOCKS5 Proxy**
-- 🏠 **Local Proxy**
+- Entry: Sidebar “🌐 Browser Environment”
+- Default environment is applied to publishing sessions (proxy/UA/viewport/locale/timezone/geolocation, etc.)
+- Deeper fingerprint spoofing (WebGL/canvas, etc.) is still WIP
 
 ---
 
@@ -327,13 +315,13 @@ Supports multiple proxy types:
 </div>
 
 - [x] ✅ **Basic Features**: Content generation and publishing
-- [ ] 🔄 **User Management**: Multi-account (UI entry not completed yet)
-- [ ] 🔄 **Proxy/Fingerprint**: Config management + browser-session integration
-- [ ] 🔄 **Content Library**: Material management system
-- [ ] 🔄 **Template Library**: Preset template system
-- [ ] 🔄 **Data Analytics**: Publishing performance analysis
+- [x] ✅ **User Management**: Multi-user switching & local isolation
+- [x] ✅ **Proxy/Fingerprint**: Browser environment management + session integration (deeper spoofing WIP)
+- [x] ✅ **Template Library**: Prompt templates + system image template import + cover templates
+- [x] ✅ **Hotspot Center**: Multi-platform hot lists + one-click to homepage topic
+- [ ] 🔄 **Scheduled Publishing**: Basic simulation now; integrate real publishing workflow next
+- [ ] 🔄 **Performance Analytics**: Stats/analysis panel is still evolving
 - [ ] 🔄 **API Interface**: Open API endpoints
-- [ ] 🔄 **Mobile Support**: Mobile app support
 
 ---
 

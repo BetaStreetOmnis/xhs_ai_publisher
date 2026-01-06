@@ -148,7 +148,7 @@ class HomePage(QWidget):
         title_layout.setContentsMargins(12, 12, 12, 12)
 
         # 添加标题标签
-        header_label = QLabel("✏️ 标题编辑")
+        header_label = QLabel("📝 标题编辑")
         header_label.setObjectName("section_title")
         title_layout.addWidget(header_label)
 
@@ -250,7 +250,7 @@ class HomePage(QWidget):
         input_layout.setSpacing(0)
         input_layout.setContentsMargins(12, 12, 12, 12)
 
-        input_label = QLabel("✏️ 内容输入")
+        input_label = QLabel("📝 内容输入")
         input_layout.addWidget(input_label)
 
         # 创建一个水平布局来包含输入框和按钮

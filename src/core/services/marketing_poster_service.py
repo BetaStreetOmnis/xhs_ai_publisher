@@ -332,6 +332,12 @@ def wrap_clipped(
     return clipped
 
 
+def clip_line(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_w: int) -> str:
+    """Clip a single line to fit `max_w` with ellipsis."""
+    lines = wrap_clipped(draw, text, font, max(1, int(max_w)), max_lines=1)
+    return lines[0] if lines else ""
+
+
 def draw_paragraph(
     draw: ImageDraw.ImageDraw,
     xy: Tuple[int, int],
@@ -607,9 +613,9 @@ class MarketingPosterService:
         title_font = self.fonts.get(size=84, bold=True, serif=True)
         title_lines: List[str] = []
         title_step = int(_font_px(title_font, 84) * 1.12)
-        for size in range(84, 55, -4):
+        for size in range(84, 43, -4):
             candidate = self.fonts.get(size=size, bold=True, serif=True)
-            lines = wrap(d, title_text, candidate, max_w)
+            lines = wrap(d, title_text, candidate, max_w - 8)
             lines = [ln for ln in lines if str(ln).strip()]
             step = int(_font_px(candidate, size) * 1.12)
             if len(lines) <= 2 and step * max(1, len(lines)) <= available_h:
@@ -619,9 +625,11 @@ class MarketingPosterService:
                 break
 
         if not title_lines:
-            title_font = self.fonts.get(size=60, bold=True, serif=True)
-            title_lines = wrap_clipped(d, title_text, title_font, max_w, max_lines=2)
-            title_step = int(_font_px(title_font, 60) * 1.12)
+            # If it still doesn't fit, use a smaller font and clip.
+            fallback_size = 52
+            title_font = self.fonts.get(size=fallback_size, bold=True, serif=True)
+            title_lines = wrap_clipped(d, title_text, title_font, max_w - 8, max_lines=2)
+            title_step = int(_font_px(title_font, fallback_size) * 1.12)
 
         y = title_y0
         for line in title_lines[:2]:
@@ -643,7 +651,7 @@ class MarketingPosterService:
         for it in bullets:
             checkbox(d, (110, y + 6), checked=True)
             line_h = int(_font_px(bullet_font, 40) * 1.18)
-            bullet_lines = wrap_clipped(d, it, bullet_font, max_w, max_lines=2)
+            bullet_lines = wrap_clipped(d, it, bullet_font, max_w - 8, max_lines=2)
             if not bullet_lines:
                 continue
             for li, line in enumerate(bullet_lines):
@@ -657,13 +665,26 @@ class MarketingPosterService:
             d.text((360, 905), "元", font=self.fonts.get(size=34, bold=True, serif=False), fill=C.sub)
 
         cta_font = self.fonts.get(size=36, bold=True, serif=False)
-        d.text((70, 1025), f"想了解详情：评论/私信「{keyword}」", font=cta_font, fill=C.text)
-        d.text((70, 1085), "领取资料/报价/示例（不公开）", font=self.fonts.get(size=26, bold=False, serif=False), fill=C.sub)
-
         prefix = "想了解详情："
         underline_text = f"评论/私信「{keyword}」"
-        x_underline = 70 + d.textlength(prefix, font=cta_font)
-        w = d.textlength(underline_text, font=cta_font)
+
+        prefix_w = d.textlength(prefix, font=cta_font)
+        max_line_w = (self.size[0] - 70 - 70)  # keep margins consistent
+        underline_max_w = max(40, max_line_w - prefix_w)
+        underline_shown = clip_line(d, underline_text, cta_font, underline_max_w - 8)
+
+        d.text((70, 1025), prefix, font=cta_font, fill=C.text)
+        d.text((70 + prefix_w, 1025), underline_shown, font=cta_font, fill=C.text)
+
+        d.text(
+            (70, 1085),
+            clip_line(d, "领取资料/报价/示例（不公开）", self.fonts.get(size=26, bold=False, serif=False), max_line_w - 8),
+            font=self.fonts.get(size=26, bold=False, serif=False),
+            fill=C.sub,
+        )
+
+        x_underline = 70 + prefix_w
+        w = d.textlength(underline_shown, font=cta_font)
         underline = Image.new("RGBA", img.size, (0, 0, 0, 0))
         ud = ImageDraw.Draw(underline)
         ud.line([(x_underline, 1065), (x_underline + w, 1065)], fill=(accent[0], accent[1], accent[2], 160), width=8)
@@ -694,12 +715,15 @@ class MarketingPosterService:
         y = 320
         row_h = 78
         for it in items:
+            shown = clip_line(d, it, item_font, (1010 - x_text - 70) - 8)
             d.ellipse([x_dot - 14, y + 16, x_dot + 8, y + 38], fill=(accent[0], accent[1], accent[2], 210))
-            d.text((x_text, y), it, font=item_font, fill=C.text)
+            d.text((x_text, y), shown, font=item_font, fill=C.text)
             y += row_h
 
         card(img, (70, 1220, 1010, 1320), radius=24)
-        d.text((110, 1255), f"想看详细方案：私信「{keyword}」", font=self.fonts.get(size=34, bold=True, serif=False), fill=C.text)
+        footer_font = self.fonts.get(size=34, bold=True, serif=False)
+        footer_text = clip_line(d, f"想看详细方案：私信「{keyword}」", footer_font, 860 - 8)
+        d.text((110, 1255), footer_text, font=footer_font, fill=C.text)
         return img
 
     def _poster_highlights(
@@ -725,7 +749,10 @@ class MarketingPosterService:
             card(img, (x0, y, x0 + w, y + h), radius=24)
 
             t_font = self.fonts.get(size=48, bold=True, serif=False)
-            tw = int(d.textlength(t, font=t_font))
+            # Reserve space for the tape decoration on the right.
+            title_max_w = (x0 + w - 170) - (x0 + 90)
+            t_shown = clip_line(d, t, t_font, title_max_w - 8)
+            tw = int(d.textlength(t_shown, font=t_font))
             d.rounded_rectangle(
                 [
                     x0 + 90,
@@ -736,7 +763,7 @@ class MarketingPosterService:
                 radius=16,
                 fill=(C.yellow[0], C.yellow[1], C.yellow[2], 255),
             )
-            d.text((x0 + 90, y + 30), t, font=t_font, fill=C.text)
+            d.text((x0 + 90, y + 30), t_shown, font=t_font, fill=C.text)
             draw_paragraph(
                 d,
                 (x0 + 90, y + 105),
@@ -758,7 +785,9 @@ class MarketingPosterService:
         note = f"价格：{price} 元（可私信获取示例/详细清单）" if price else "可私信获取示例/详细清单（不公开）"
         card(img, (70, note_y0, 1010, 1380), radius=24)
         d = ImageDraw.Draw(img)
-        d.text((110, note_y0 + 32), f"私信「{keyword}」先看预览", font=self.fonts.get(size=34, bold=True, serif=False), fill=C.text)
+        note_title_font = self.fonts.get(size=34, bold=True, serif=False)
+        note_title_text = clip_line(d, f"私信「{keyword}」先看预览", note_title_font, 860 - 8)
+        d.text((110, note_y0 + 32), note_title_text, font=note_title_font, fill=C.text)
         draw_paragraph(
             d,
             (110, note_y0 + 80),
@@ -797,7 +826,8 @@ class MarketingPosterService:
             d = ImageDraw.Draw(img)
             d.text((cx - 10, cy - 20), str(idx + 1), font=self.fonts.get(size=30, bold=True, serif=False), fill=(255, 255, 255))
 
-            d.text((210, y), clean_text(step), font=step_font, fill=C.text)
+            shown = clip_line(d, clean_text(step), step_font, (1010 - 210 - 70) - 8)
+            d.text((210, y), shown, font=step_font, fill=C.text)
             y += 80
 
             if idx < 2:
@@ -806,9 +836,13 @@ class MarketingPosterService:
 
         card(img, (70, 1125, 1010, 1320), radius=24)
         d = ImageDraw.Draw(img)
-        d.text((110, 1165), "你会得到：海报文案 + 图片模板 + 示例", font=self.fonts.get(size=34, bold=True, serif=False), fill=C.text)
+        footer_font = self.fonts.get(size=34, bold=True, serif=False)
+        footer_text = clip_line(d, "你会得到：海报文案 + 图片模板 + 示例", footer_font, 860 - 8)
+        d.text((110, 1165), footer_text, font=footer_font, fill=C.text)
         tail = f"价格：{price} 元｜可私信获取示例" if price else "可私信获取示例"
-        d.text((110, 1225), tail, font=self.fonts.get(size=30, bold=False, serif=False), fill=C.sub)
+        tail_font = self.fonts.get(size=30, bold=False, serif=False)
+        tail_text = clip_line(d, tail, tail_font, 860 - 8)
+        d.text((110, 1225), tail_text, font=tail_font, fill=C.sub)
         return img
 
     def _poster_pain_points(
@@ -834,9 +868,13 @@ class MarketingPosterService:
             y = draw_paragraph(d, (160, y), p, font=f, fill=C.text, max_w=820, spacing=4) + 22
 
         card(img, (70, 1100, 1010, 1320), radius=24)
-        d.text((110, 1145), "结论：按步骤走一遍，很多坑会直接避开", font=self.fonts.get(size=34, bold=True, serif=False), fill=C.text)
+        conclusion_font = self.fonts.get(size=34, bold=True, serif=False)
+        conclusion_text = clip_line(d, "结论：按步骤走一遍，很多坑会直接避开", conclusion_font, 860 - 8)
+        d.text((110, 1145), conclusion_text, font=conclusion_font, fill=C.text)
         tail = f"私信「{keyword}」先看预览｜价格 {price}" if price else f"私信「{keyword}」先看预览"
-        d.text((110, 1205), tail, font=self.fonts.get(size=30, bold=False, serif=False), fill=C.sub)
+        tail_font = self.fonts.get(size=30, bold=False, serif=False)
+        tail_text = clip_line(d, tail, tail_font, 860 - 8)
+        d.text((110, 1205), tail_text, font=tail_font, fill=C.sub)
         return img
 
     def _draw_audience_card(
@@ -867,9 +905,11 @@ class MarketingPosterService:
 
         title_font = self.fonts.get(size=44, bold=True, serif=False)
         title_x, title_y = x0 + 110, y0 + 36
-        highlight_title(img, (title_x, title_y), title, font=title_font, accent=accent)
+        title_max_w = (x1 - 200) - title_x
+        title_shown = clip_line(d, title, title_font, title_max_w - 8)
+        highlight_title(img, (title_x, title_y), title_shown, font=title_font, accent=accent)
         d = ImageDraw.Draw(img)
-        d.text((title_x, title_y), title, font=title_font, fill=C.text)
+        d.text((title_x, title_y), title_shown, font=title_font, fill=C.text)
 
         bullet_font = self.fonts.get(size=30, bold=False, serif=False)
         bullet_x, bullet_y = title_x, y0 + 108
@@ -912,8 +952,11 @@ class MarketingPosterService:
         img.paste(img_rgba)
         d = ImageDraw.Draw(img)
         d.text((tag_x0 + 38, tag_y0 + 10), "不太适合", font=self.fonts.get(size=28, bold=True, serif=False), fill=(255, 255, 255))
-        d.text((tag_x1 + 18, tag_y0 + 12), "只想看概念不动手", font=self.fonts.get(size=32, bold=True, serif=False), fill=C.text)
-        d.text((110, note_y0 + 112), f"想了解详情：私信「{keyword}」", font=self.fonts.get(size=30, bold=False, serif=False), fill=C.sub)
+        notfit_font = self.fonts.get(size=32, bold=True, serif=False)
+        d.text((tag_x1 + 18, tag_y0 + 12), clip_line(d, "只想看概念不动手", notfit_font, 1010 - (tag_x1 + 18) - 70 - 8), font=notfit_font, fill=C.text)
+        footer_font = self.fonts.get(size=30, bold=False, serif=False)
+        footer_text = clip_line(d, f"想了解详情：私信「{keyword}」", footer_font, 860 - 8)
+        d.text((110, note_y0 + 112), footer_text, font=footer_font, fill=C.sub)
 
         return img
 

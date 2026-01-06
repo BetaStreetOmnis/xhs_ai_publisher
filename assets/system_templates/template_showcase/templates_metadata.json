@@ -114,6 +114,21 @@
       "design": "product_hero"
     },
     {
+      "id": "marketing_poster",
+      "name": "营销海报🌟🌟🌟",
+      "category": "marketing",
+      "regions": [
+        "title",
+        "bullets",
+        "outline",
+        "highlights",
+        "delivery",
+        "pain_points",
+        "audience"
+      ],
+      "design": "paper_notes_cards"
+    },
+    {
       "id": "social_quote_card",
       "name": "金句卡片",
       "category": "social",

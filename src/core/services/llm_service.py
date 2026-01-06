@@ -180,6 +180,234 @@ class LLMService:
         title, content = self._extract_title_content(topic, header_title, author, raw_text, parsed)
         return LLMResponse(title=title, content=content, raw_text=raw_text, raw_json=parsed)
 
+    def generate_marketing_poster_content(
+        self,
+        topic: str,
+        *,
+        price: str = "",
+        keyword: str = "",
+    ) -> Dict[str, Any]:
+        """生成“营销海报”渲染器所需的结构化 JSON。"""
+        topic = (topic or "").strip() or "营销海报"
+        price_text = (price or "").strip()
+        keyword_text = (keyword or "").strip()
+
+        # 配置可能在 UI 中被用户修改；每次调用前重新加载一次
+        try:
+            self.config.load_config()
+        except Exception:
+            pass
+
+        model_config = self.config.get_model_config()
+        ok, reason = self.is_model_configured(model_config)
+        if not ok:
+            fallback = self._generate_default_marketing_poster_content(topic, price=price_text, keyword=keyword_text)
+            fallback["__source"] = "default"
+            fallback["__error"] = f"模型配置不可用: {reason}"
+            return fallback
+
+        system_prompt = (model_config.get("system_prompt") or "").strip()
+        extra_system = (
+            "你是一位小红书营销海报文案策划，输出适合直接排版到海报上的短句文案。"
+            "严格只返回 JSON 对象，不要输出解释、不要 markdown、不要 emoji。"
+        )
+        system = (system_prompt + "\n\n" + extra_system).strip() if system_prompt else extra_system
+
+        user = f"""
+为「{topic}」生成一套 6 张营销海报（同一套风格），用于小红书发布。
+
+要求：
+- 绝对不要 emoji、不要 markdown、不要解释说明。
+- 每行尽量短，适合放在图片上。
+- 条目式内容要精炼，有行动引导。
+
+如果用户提供以下信息，请原样使用，不要自作主张改写/编造：
+- 价格 price：\"{price_text}\"
+- 私信关键词 keyword：\"{keyword_text}\"
+
+请返回 JSON，字段如下：
+{{
+  "title": "主标题（短句）",
+  "subtitle": "副标题（一句）",
+  "price": "价格数字或文本（未知可为空字符串）",
+  "keyword": "私信关键词（没有就用“咨询”）",
+  "accent": "blue|purple|orange|red",
+  "cover_bullets": ["卖点1","卖点2","卖点3"],
+  "outline_items": ["要点1","要点2","要点3","要点4","要点5","要点6","要点7","要点8"],
+  "highlights": [{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}}],
+  "delivery_steps": ["步骤1","步骤2","步骤3"],
+  "pain_points": ["痛点1","痛点2","痛点3","痛点4"],
+  "audience": [
+    {{"badge":"工","title":"适合人群1","bullets":["要点","要点"]}},
+    {{"badge":"产","title":"适合人群2","bullets":["要点","要点"]}},
+    {{"badge":"面","title":"适合人群3","bullets":["要点","要点"]}}
+  ],
+  "caption": "可选：发布配文（纯文本）",
+  "disclaimer": "一行免责声明（纯文本）"
+}}
+""".strip()
+
+        try:
+            raw_text = self._call_model(
+                model_config,
+                [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+        except Exception as e:
+            fallback = self._generate_default_marketing_poster_content(topic, price=price_text, keyword=keyword_text)
+            fallback["__source"] = "default"
+            fallback["__error"] = f"模型请求失败: {str(e)}"
+            return fallback
+        data = self._try_parse_json(raw_text) or {}
+        if not isinstance(data, dict):
+            fallback = self._generate_default_marketing_poster_content(topic, price=price_text, keyword=keyword_text)
+            fallback["__source"] = "default"
+            fallback["__error"] = "模型返回无法解析为 JSON"
+            return fallback
+
+        def _to_str(v: Any) -> str:
+            return str(v).strip() if v is not None else ""
+
+        def _clean(v: Any) -> str:
+            return self._remove_emoji(_to_str(v)).strip()
+
+        title = _clean(data.get("title")) or (topic[:18] if topic else "营销海报")
+        subtitle = _clean(data.get("subtitle"))
+        accent = _to_str(data.get("accent")).strip().lower() or "blue"
+
+        out_price = _clean(data.get("price"))
+        if price_text:
+            out_price = price_text
+
+        out_keyword = _clean(data.get("keyword")) or "咨询"
+        if keyword_text:
+            out_keyword = keyword_text
+
+        def _norm_list(val: Any, *, min_items: int, max_items: int, fallback: List[str]) -> List[str]:
+            items: List[str] = []
+            if isinstance(val, list):
+                for x in val:
+                    s = _clean(x)
+                    if s:
+                        items.append(s)
+            items = items[:max_items]
+            while len(items) < min_items and len(items) < max_items:
+                items.append(fallback[len(items) % len(fallback)])
+            return items
+
+        cover_bullets = _norm_list(
+            data.get("cover_bullets"),
+            min_items=3,
+            max_items=3,
+            fallback=["核心卖点 1", "核心卖点 2", "核心卖点 3"],
+        )
+        outline_items = _norm_list(
+            data.get("outline_items"),
+            min_items=8,
+            max_items=10,
+            fallback=["要点概览", "功能说明", "适用场景", "交付方式", "注意事项"],
+        )
+
+        highlights: List[Dict[str, str]] = []
+        if isinstance(data.get("highlights"), list):
+            for item in data["highlights"]:
+                if not isinstance(item, dict):
+                    continue
+                h_title = _clean(item.get("title")) or "亮点"
+                h_desc = _clean(item.get("desc") or item.get("description")) or ""
+                highlights.append({"title": h_title, "desc": h_desc})
+        while len(highlights) < 4:
+            idx = len(highlights) + 1
+            highlights.append({"title": f"亮点 {idx}", "desc": "一句话说明它能解决什么问题"})
+        highlights = highlights[:4]
+
+        delivery_steps = _norm_list(
+            data.get("delivery_steps"),
+            min_items=3,
+            max_items=3,
+            fallback=["下单购买", "确认需求/领取资料", "开始使用/复盘优化"],
+        )
+        pain_points = _norm_list(
+            data.get("pain_points"),
+            min_items=4,
+            max_items=4,
+            fallback=["不知道从哪开始", "信息太碎不好整理", "做完效果不稳定", "缺少可复用模板"],
+        )
+
+        audience: List[Dict[str, Any]] = []
+        if isinstance(data.get("audience"), list):
+            for item in data["audience"]:
+                if not isinstance(item, dict):
+                    continue
+                badge = _clean(item.get("badge"))[:1] or "A"
+                a_title = _clean(item.get("title")) or "适合人群"
+                bullets = _norm_list(
+                    item.get("bullets"),
+                    min_items=2,
+                    max_items=3,
+                    fallback=["痛点清晰", "希望快速上手", "需要可复制模板"],
+                )
+                audience.append({"badge": badge, "title": a_title, "bullets": bullets})
+        while len(audience) < 3:
+            idx = len(audience) + 1
+            audience.append({"badge": str(idx), "title": f"人群 {idx}", "bullets": ["痛点清晰", "希望快速上手"]})
+        audience = audience[:3]
+
+        caption = _clean(data.get("caption"))
+        disclaimer = _clean(data.get("disclaimer")) or "仅供参考｜请遵守平台规则"
+
+        return {
+            "title": title,
+            "subtitle": subtitle,
+            "price": out_price,
+            "keyword": out_keyword,
+            "accent": accent,
+            "cover_bullets": cover_bullets,
+            "outline_items": outline_items,
+            "highlights": highlights,
+            "delivery_steps": delivery_steps,
+            "pain_points": pain_points,
+            "audience": audience,
+            "caption": caption,
+            "disclaimer": disclaimer,
+            "__source": "llm",
+        }
+
+    @staticmethod
+    def _generate_default_marketing_poster_content(topic: str, *, price: str = "", keyword: str = "") -> Dict[str, Any]:
+        title = (topic or "营销海报").strip()
+        if len(title) > 18:
+            title = title[:18]
+
+        keyword_text = (keyword or "").strip() or "咨询"
+        price_text = (price or "").strip()
+        return {
+            "title": title or "营销海报",
+            "subtitle": "一套看懂卖点与交付路径",
+            "price": price_text,
+            "keyword": keyword_text,
+            "accent": "blue",
+            "cover_bullets": ["核心卖点清晰", "交付路径明确", "适合快速上手"],
+            "outline_items": ["你会拿到什么", "关键卖点", "适合人群", "交付方式", "注意事项", "常见问题", "案例/示例", "下一步行动"],
+            "highlights": [
+                {"title": "系统化", "desc": "从需求到交付，路径清晰不绕弯"},
+                {"title": "可复用", "desc": "模板/清单可直接复制修改"},
+                {"title": "可落地", "desc": "按步骤执行，减少试错成本"},
+                {"title": "可迭代", "desc": "持续更新优化，长期可用"},
+            ],
+            "delivery_steps": ["下单购买", "私信发放/确认交付", "开始使用并持续优化"],
+            "pain_points": ["不知道从哪开始", "信息太碎不好整理", "做完效果不稳定", "缺少可复用模板"],
+            "audience": [
+                {"badge": "工", "title": "执行/交付", "bullets": ["想更快做出结果", "需要可复制模板"]},
+                {"badge": "产", "title": "负责人/产品", "bullets": ["需要路线图", "关注成本与风险"]},
+                {"badge": "面", "title": "学习/备面", "bullets": ["希望系统复习", "用题库自测"]},
+            ],
+            "caption": f"这是一套关于「{topic}」的营销海报，想看示例/细节欢迎私信。",
+            "disclaimer": "仅供参考｜请遵守平台规则",
+        }
+
     def list_prompt_templates(self) -> List[PromptTemplate]:
         templates: List[PromptTemplate] = []
         for path in self._get_prompt_templates_dir().glob("*.json"):

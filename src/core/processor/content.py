@@ -39,6 +39,26 @@ class ContentGeneratorThread(QThread):
         except Exception:
             selected_cover_tpl = ""
 
+        # 特殊模板：营销海报（本地渲染 6 张图）
+        if selected_cover_tpl == "showcase_marketing_poster":
+            try:
+                self.generate_btn.setText("🪧 生成营销海报中...")
+                self.generate_btn.setEnabled(False)
+            except Exception:
+                pass
+
+            try:
+                self._generate_marketing_poster()
+            except Exception as e:
+                self.error.emit(f"营销海报生成失败: {str(e)}")
+            finally:
+                try:
+                    self.generate_btn.setText("✨ 生成内容")
+                    self.generate_btn.setEnabled(True)
+                except Exception:
+                    pass
+            return
+
         allow_fallback = os.environ.get("XHS_ALLOW_FALLBACK", "").strip().lower() in {
             "1",
             "true",
@@ -131,6 +151,368 @@ class ContentGeneratorThread(QThread):
         last = getattr(self, "_last_remote_error", "") or getattr(self, "_last_llm_error", "")
         self.error.emit(last or "生成失败：未配置可用的大模型/远程服务")
         return
+
+    def _generate_marketing_poster(self) -> None:
+        """生成“营销海报”所需的文案与图片，并通过 finished 信号返回。"""
+        from src.core.services.marketing_poster_service import marketing_poster_service
+
+        price_override = os.environ.get("XHS_MARKETING_POSTER_PRICE", "").strip()
+        keyword_override = os.environ.get("XHS_MARKETING_POSTER_KEYWORD", "").strip()
+
+        extracted_price = self._extract_price_value(self.input_text)
+        price_hint = price_override or extracted_price
+        keyword_hint = keyword_override or "咨询"
+
+        content = llm_service.generate_marketing_poster_content(
+            topic=self.input_text,
+            price=price_hint,
+            keyword=keyword_hint,
+        )
+
+        # 若模型不可用/失败，则使用默认接口生成的 AI 文案来填充海报
+        if str(content.get("__source") or "").strip().lower() != "llm":
+            try:
+                remote_seed = self._generate_marketing_poster_seed_via_remote()
+                content = self._build_marketing_poster_content_from_remote(
+                    remote_seed,
+                    price=price_hint,
+                    keyword=keyword_hint,
+                )
+            except Exception as e:
+                # 保留默认 fallback 内容
+                try:
+                    content.setdefault("__source", "default")
+                    content["__error_remote"] = str(e)
+                except Exception:
+                    pass
+
+        cover_path, content_paths = marketing_poster_service.generate_to_local_paths(content)
+        if not cover_path or not content_paths:
+            raise RuntimeError("营销海报图片生成失败")
+
+        title = str(content.get("title") or "").strip()
+        caption = str(content.get("caption") or "").strip()
+        subtitle = str(content.get("subtitle") or "").strip()
+        shown_content = caption or subtitle
+
+        result = {
+            "title": title,
+            "content": shown_content,
+            "cover_image": cover_path,
+            "content_images": content_paths,
+            "input_text": self.input_text,
+            "content_pages": [],
+            "generator": "marketing_poster",
+            "info_reason": self._format_marketing_poster_info_reason(content),
+        }
+        self.finished.emit(result)
+
+    @staticmethod
+    def _extract_price_value(text: str) -> str:
+        """从文本中提取价格数字（不带单位）。"""
+        s = str(text or "")
+        patterns = [
+            r"(?:￥|¥)\s*(\d+(?:\.\d{1,2})?)",
+            r"(\d+(?:\.\d{1,2})?)\s*(?:元|块|¥|￥)",
+        ]
+        for pat in patterns:
+            m = re.search(pat, s)
+            if m:
+                return str(m.group(1) or "").strip()
+        return ""
+
+    @staticmethod
+    def _format_marketing_poster_info_reason(content: dict) -> str:
+        source = str((content or {}).get("__source") or "").strip().lower()
+        if source == "remote":
+            return "🪧 营销海报：默认接口 AI 文案 + 本地渲染"
+        if source == "llm":
+            return "🪧 营销海报：大模型 AI 文案 + 本地渲染"
+        return "🪧 营销海报：默认文案 + 本地渲染"
+
+    @staticmethod
+    def _build_remote_session() -> requests.Session:
+        """构造请求 Session：如系统代理指向本机但不可用，则自动禁用代理。"""
+        sess = requests.Session()
+        use_proxy = os.environ.get("XHS_REMOTE_WORKFLOW_USE_PROXY", "").strip().lower() in {"1", "true", "yes", "y", "on"}
+        if not use_proxy:
+            sess.trust_env = False
+            return sess
+        try:
+            import socket
+            import urllib.request
+            from urllib.parse import urlparse
+
+            proxies = urllib.request.getproxies() or {}
+            proxy_url = proxies.get("http") or proxies.get("https") or ""
+            if proxy_url and ("127.0.0.1" in proxy_url or "localhost" in proxy_url):
+                parsed = urlparse(proxy_url)
+                host = parsed.hostname or ""
+                port = parsed.port or 0
+                if host and port:
+                    try:
+                        with socket.create_connection((host, int(port)), timeout=0.25):
+                            return sess
+                    except Exception:
+                        sess.trust_env = False
+        except Exception:
+            pass
+        return sess
+
+    def _generate_marketing_poster_seed_via_remote(self) -> dict:
+        """使用默认远程接口生成一份 AI 文案（title/content/contentlist），用于填充营销海报。"""
+        if not self._should_use_remote_workflow_api():
+            raise RuntimeError("默认接口不可用：无法连接到远程服务")
+
+        api_url = "http://8.137.103.115:8081/workflow/run"
+        workflow_id = "7431484143153070132"
+        parameters = {
+            "BOT_USER_INPUT": self.input_text,
+            "HEADER_TITLE": self.header_title,
+            "AUTHOR": self.author,
+        }
+
+        connect_timeout = float(os.environ.get("XHS_REMOTE_WORKFLOW_CONNECT_TIMEOUT", "5") or 5)
+        read_timeout = float(os.environ.get("XHS_REMOTE_WORKFLOW_READ_TIMEOUT", "180") or 180)
+
+        sess = self._build_remote_session()
+        resp = sess.post(
+            api_url,
+            json={"workflow_id": workflow_id, "parameters": parameters},
+            timeout=(connect_timeout, read_timeout),
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "XhsAiPublisher/1.0",
+                "Accept": "application/json",
+            },
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"默认接口调用失败: HTTP {resp.status_code}")
+
+        res = resp.json() or {}
+        raw_data = res.get("data")
+        if isinstance(raw_data, str):
+            full_data = json.loads(raw_data)
+        elif isinstance(raw_data, dict):
+            full_data = raw_data
+        else:
+            raise RuntimeError("默认接口返回格式异常")
+
+        output_raw = full_data.get("output") or ""
+        output_obj: dict = {}
+        try:
+            if isinstance(output_raw, str):
+                output_obj = json.loads(output_raw) if output_raw.strip().startswith("{") else {}
+            elif isinstance(output_raw, dict):
+                output_obj = output_raw
+        except Exception:
+            output_obj = {}
+
+        contentlist_raw = full_data.get("contentlist")
+        contentlist: list = []
+        try:
+            if isinstance(contentlist_raw, str) and contentlist_raw.strip().startswith("["):
+                contentlist = json.loads(contentlist_raw)
+            elif isinstance(contentlist_raw, list):
+                contentlist = contentlist_raw
+        except Exception:
+            contentlist = []
+
+        seed_title = str(output_obj.get("title") or "").strip()
+        seed_content = str(full_data.get("content") or output_obj.get("content") or "").strip()
+        seed_content_pages = self._build_pages_from_content_list(contentlist) if contentlist else []
+        return {
+            "title": seed_title,
+            "content": seed_content,
+            "contentlist": contentlist,
+            "content_pages": seed_content_pages,
+            "raw": full_data,
+            "output": output_obj,
+        }
+
+    def _build_marketing_poster_content_from_remote(self, seed: dict, *, price: str = "", keyword: str = "") -> dict:
+        from src.core.services.marketing_poster_service import clean_text
+
+        topic = (self.input_text or "").strip()
+        seed_title = clean_text(str((seed or {}).get("title") or "")) or clean_text(topic)
+        if len(seed_title) > 18:
+            seed_title = seed_title[:18]
+
+        seed_content = str((seed or {}).get("content") or "").strip()
+        seed_content_clean = clean_text(seed_content)
+        seed_content_clean = re.sub(r"#\S+", "", seed_content_clean).strip()
+
+        price_value = (price or "").strip() or self._extract_price_value(topic) or self._extract_price_value(seed_content)
+        keyword_value = (keyword or "").strip() or "咨询"
+
+        contentlist = (seed or {}).get("contentlist") or []
+        if not isinstance(contentlist, list):
+            contentlist = []
+
+        # cover bullets：从 contentlist 的描述句中抽取
+        bullet_candidates: list[str] = []
+        for it in contentlist:
+            raw = str(it or "")
+            body = raw.split("~~~", 1)[1] if "~~~" in raw else ""
+            body = clean_text(body)
+            body = re.sub(r"#\S+", "", body).strip()
+            if not body:
+                continue
+            for seg in re.split(r"[，、;；。！？!?\n]", body):
+                seg = clean_text(seg).strip()
+                if len(seg) < 4:
+                    continue
+                bullet_candidates.append(seg)
+
+        cover_bullets: list[str] = []
+        for b in bullet_candidates:
+            if b not in cover_bullets:
+                cover_bullets.append(b)
+            if len(cover_bullets) >= 3:
+                break
+        if len(cover_bullets) < 3:
+            fallback = [
+                "资料重点清晰，查漏补缺更高效",
+                "一套搞定核心内容，省时省心",
+                "适合快速上手，马上可用",
+            ]
+            for f in fallback:
+                if len(cover_bullets) >= 3:
+                    break
+                cover_bullets.append(f)
+
+        # highlights：优先用 contentlist 的标题 + 描述
+        def _short_title(text: str, max_len: int = 9) -> str:
+            t = clean_text(text)
+            t = re.sub(r"[0-9.]+", "", t)
+            t = t.replace("元", "").replace("块", "").replace("￥", "").replace("¥", "")
+            t = re.sub(r"[\s·•\-—_]+", "", t)
+            t = t.strip()
+            if len(t) > max_len:
+                t = t[:max_len]
+            return t or "亮点"
+
+        highlights: list[dict[str, str]] = []
+        for it in contentlist:
+            raw = str(it or "")
+            title_part = raw.split("~~~", 1)[0] if "~~~" in raw else raw
+            body_part = raw.split("~~~", 1)[1] if "~~~" in raw else ""
+            h_title = _short_title(title_part)
+            h_desc = clean_text(body_part)
+            h_desc = re.sub(r"#\S+", "", h_desc).strip()
+            if len(h_desc) > 34:
+                h_desc = h_desc[:34]
+            highlights.append({"title": h_title, "desc": h_desc or "一句话说明它能解决什么问题"})
+            if len(highlights) >= 4:
+                break
+
+        if len(highlights) < 4:
+            sentences = [s.strip() for s in re.split(r"[。！？!?\n]", seed_content_clean) if s.strip()]
+            for s in sentences:
+                if len(highlights) >= 4:
+                    break
+                if len(s) < 6:
+                    continue
+                highlights.append({"title": "省心高效", "desc": s[:34]})
+        highlights = highlights[:4]
+
+        # pain points：优先从正文的“问题句”里抽取
+        pain_points: list[str] = []
+        pain_keywords = ["头疼", "没效果", "浪费", "不知道", "焦虑", "担心", "不会", "太难", "踩坑", "避雷"]
+        for s in [x.strip() for x in re.split(r"[。！？!?\n]", seed_content_clean) if x.strip()]:
+            if any(k in s for k in pain_keywords):
+                if s not in pain_points:
+                    pain_points.append(s)
+            if len(pain_points) >= 4:
+                break
+        while len(pain_points) < 4:
+            pain_points.append(["选资料不知从哪下手", "内容太杂抓不住重点", "花了钱效果不稳定", "缺少可复用的学习计划"][len(pain_points)])
+
+        # audience：简单按关键词生成 3 类人群
+        audience_text = seed_content_clean + " " + topic
+        is_parent = ("宝妈" in audience_text) or ("家长" in audience_text) or ("爸妈" in audience_text) or ("妈妈" in audience_text)
+        audience: list[dict[str, Any]] = []
+        if is_parent:
+            audience.append({"badge": "家", "title": "宝妈/家长", "bullets": ["想省时省心辅导", "需要一套全科资料"]})
+        audience.append({"badge": "冲", "title": "期末/考试冲刺", "bullets": ["想要高频考点归纳", "需要刷题卷/练习册"]})
+        audience.append({"badge": "补", "title": "查漏补缺", "bullets": ["基础薄弱想补短板", "希望稳步提分"]})
+        audience = audience[:3]
+
+        caption = str((seed or {}).get("content") or "").strip()
+        if not caption:
+            caption = f"关于「{topic}」的营销海报已生成，想看示例/清单欢迎私信。"
+
+        # outline_items：用于“要点一图看懂”页，尽量用 AI 生成的真实内容填充
+        def _short_outline_item(text: str, max_len: int = 16) -> str:
+            t = clean_text(text)
+            t = re.sub(r"#\S+", "", t).strip()
+            # 去掉常见口头禅/装饰符号
+            t = t.replace("❗", "").replace("！", "").replace("🔥", "")
+            # 若以价格开头，避免“29.9元...”占满一行（但保留“价格 29.9元”这种）
+            t = re.sub(r"^(?:￥|¥)?\s*\d+(?:\.\d{1,2})?\s*(?:元|块)\s*", "", t)
+            t = re.sub(r"\s+", "", t).strip("，。；;:：!！?？-—_·•|｜“”\"'「」")
+            if len(t) > max_len:
+                t = t[:max_len]
+            return t
+
+        outline_items: list[str] = []
+
+        def _push_outline(val: str) -> None:
+            nonlocal outline_items
+            if len(outline_items) >= 10:
+                return
+            item = _short_outline_item(val)
+            if not item or len(item) < 4:
+                return
+            if item not in outline_items:
+                outline_items.append(item)
+
+        # 1) 优先用 contentlist 的描述句
+        for b in bullet_candidates:
+            _push_outline(b)
+
+        # 2) 再用 highlights 标题
+        for h in highlights:
+            if not isinstance(h, dict):
+                continue
+            _push_outline(str(h.get("title") or ""))
+
+        # 3) 不足则从正文里补齐
+        if len(outline_items) < 8:
+            for seg in re.split(r"[，、;；。！？!?\n]", seed_content_clean):
+                _push_outline(seg)
+                if len(outline_items) >= 10:
+                    break
+
+        # 4) 兜底补一些关键维度
+        derived: list[str] = []
+        if price_value:
+            derived.append(f"价格 {price_value}元")
+        if is_parent:
+            derived.append("宝妈/家长适用")
+        derived.append(f"私信{keyword_value}领取")
+        for d in derived:
+            _push_outline(d)
+
+        while len(outline_items) < 8:
+            outline_items.append(["核心卖点清晰", "交付方式明确", "适合人群明确", "使用建议可执行"][len(outline_items) % 4])
+
+        return {
+            "title": seed_title or "营销海报",
+            "subtitle": "一套看懂卖点与交付路径",
+            "price": price_value,
+            "keyword": keyword_value,
+            "accent": "blue",
+            "cover_bullets": cover_bullets[:3],
+            "outline_items": outline_items[:10],
+            "highlights": highlights,
+            "delivery_steps": [f"评论/私信「{keyword_value}」", "确认需求/领取资料", "开始使用/复盘优化"],
+            "pain_points": pain_points[:4],
+            "audience": audience,
+            "caption": caption,
+            "disclaimer": "仅供参考｜请遵守平台规则",
+            "__source": "remote",
+        }
 
     def _use_backup_generator(self, info_reason: str = ""):
         """使用备用生成器"""

@@ -182,7 +182,6 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright 
 
 提示：
 - 运行数据默认存放于 `~/.xhs_system/`（数据库、日志、浏览器缓存等）
-- `venv/` 已在 `.gitignore`，不会被提交或上传
 
 常见问题：
 - Windows 安装失败（多为 PyQt5）：请用 Python 3.11/3.12（64 位），避免 Python 3.13 或 32 位 Python

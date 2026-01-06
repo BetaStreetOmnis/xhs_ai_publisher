@@ -795,7 +795,7 @@ class HomePage(QWidget):
                 from src.core.services.system_image_template_service import system_image_template_service
 
                 tpl_id = (Config().get_templates_config().get("selected_cover_template_id") or "").strip()
-                if tpl_id:
+                if tpl_id and tpl_id != "showcase_marketing_poster":
                     showcase_dir = system_image_template_service.resolve_showcase_dir()
                     bg_path = None
                     if showcase_dir:

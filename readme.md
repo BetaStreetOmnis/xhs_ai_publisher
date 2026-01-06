@@ -367,6 +367,12 @@ flowchart LR
 
 ---
 
+## ⭐ Star 历史
+
+[![Star History Chart](https://api.star-history.com/svg?repos=BetaStreetOmnis/xhs_ai_publisher&type=Date)](https://star-history.com/#BetaStreetOmnis/xhs_ai_publisher&Date)
+
+---
+
 ## 📄 许可证
 
 <div align="center">

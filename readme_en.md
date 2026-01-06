@@ -383,6 +383,12 @@ flowchart LR
 
 ---
 
+## ⭐ Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=BetaStreetOmnis/xhs_ai_publisher&type=Date)](https://star-history.com/#BetaStreetOmnis/xhs_ai_publisher&Date)
+
+---
+
 ## 📄 License
 
 <div align="center">

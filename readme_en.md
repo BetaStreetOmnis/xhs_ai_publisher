@@ -27,6 +27,13 @@
 
 ---
 
+## 🆕 Jan 6 Update
+
+- 📊 **Hotspot data**: built-in hot lists (Weibo/Baidu/Toutiao/Bilibili), one-click to use as the homepage topic
+- 🪧 **New marketing templates**: pick **Marketing Poster (locally renders 6 images) / Promo Banner / Product Showcase** in “🖼️ Cover Center”
+- 🖼️ **Preview & download improvements**: open the cover template library and download **cover + content images** directly from the homepage
+- 🎨 **UI flow improvements**: left-side editing with right-side image preview
+
 ## 📖 Project Overview
 
 > **Xiaohongshu AI Publisher** is a powerful automated content creation and publishing tool, specifically designed for content creators on the Xiaohongshu platform.
@@ -52,7 +59,7 @@
 - 🧩 **Prompt Templates**: Choose different writing styles via templates (`templates/prompts/*.json`), and extend them easily
 - 📊 **Hotspot Center**: Built-in hot lists (Weibo/Baidu/Toutiao/Bilibili), one-click to use as homepage topic
 - 🖼️ **Image Processing**: Smart image matching and processing
-- 🖼️ **Cover/Content Templates**: Choose a template in “🖼️ Cover Center”; generation outputs a cover + multiple content images (one-click download)
+- 🖼️ **Cover/Content Templates**: Choose a template in “🖼️ Cover Center” (including marketing poster/promo banner/product showcase); generation outputs a cover + multiple content images (one-click download)
 - 🏷️ **Tag Recommendations**: Auto-recommend trending tags
 
 </td>

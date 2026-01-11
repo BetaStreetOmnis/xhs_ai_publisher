@@ -63,7 +63,7 @@
 ### 🚀 自动化发布
 - 📱 **一键登录**: 支持手机号快速登录
 - 📋 **内容预览**: 发布前完整预览效果
-- ⏰ **定时发布（基础版）**: 支持任务管理与定时触发；当前执行逻辑为模拟，可按需对接真实发布流程
+- ⏰ **定时发布（无人值守）**: 支持任务管理与到点自动发布（需保持程序运行且账号已登录）
 - 💾 **状态保存**: 自动保存登录状态
 
 </td>
@@ -106,13 +106,14 @@
 │   │   ├── 📂 services/             # 🔧 业务服务层
 │   │   ├── 📂 pages/                # 🎨 界面页面
 │   │   ├── 📂 processor/            # 🧩 内容/图片处理
-│   │   ├── 📂 scheduler/            # ⏰ 定时任务（当前为模拟）
+│   │   ├── 📂 scheduler/            # ⏰ 定时任务（到点自动发布）
 │   │   └── 📂 ai_integration/       # 🤖 AI适配（实验）
 │   ├── 📂 web/                      # 🌐 Web接口
 │   │   ├── 📂 templates/            # 📄 HTML模板
 │   │   └── 📂 static/               # 🎨 静态资源
 │   └── 📂 logger/                   # 📝 日志系统
 ├── 📂 images/                       # 🖼️ 文档/界面截图资源
+├── 📂 docs/                         # 📚 文档
 ├── 📂 tests/                        # 🧪 测试目录
 ├── 📂 venv/                         # 🐍 本地虚拟环境（已在 .gitignore，不会上传 GitHub）
 ├── 🐍 main.py                       # 🚀 主程序入口
@@ -199,6 +200,8 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright 
 
 ## 📱 使用指南
 
+> 📘 更完整的小红书「选题/写法/封面/发布/运营」教程： [小红书从 0 到 1 教程](./docs/xhs_tutorial.md)
+
 ### 🎯 基础使用流程
 
 <div align="center">
@@ -261,7 +264,7 @@ flowchart LR
 9. **👀 预览发布**
    - 点击"预览发布"查看效果
    - 确认内容无误后点击发布
-   - 支持定时发布功能
+   - 或点击「⏰ 定时发布」设置时间，到点自动发布（需保持程序运行且账号已登录）
 
 ---
 
@@ -286,7 +289,7 @@ flowchart LR
 - `~/.xhs_system/ms-playwright/`：Playwright 浏览器缓存目录
 - `~/.xhs_system/logs/`：运行日志
 - `~/.xhs_system/hotspots_cache.json`：热点缓存
-- `~/.xhs_system/schedule_tasks.json`：定时发布任务（基础版）
+- `~/.xhs_system/schedule_tasks.json`：定时发布任务
 
 ### 🌐 代理/指纹
 
@@ -309,7 +312,7 @@ flowchart LR
 - [x] ✅ **代理/指纹**: 浏览器环境管理 + 发布会话接入（深度指纹持续完善）
 - [x] ✅ **模板库**: 文案模板 + 系统图片模板导入 + 封面模板库
 - [x] ✅ **数据中心**: 多平台热榜采集 + 一键带回首页生成
-- [ ] 🔄 **定时发布**: 当前为基础版模拟执行，待对接真实发布流程
+- [x] ✅ **定时发布**: 支持任务管理与到点自动发布（需保持程序运行）
 - [ ] 🔄 **发布效果分析**: 数据统计/分析面板持续完善
 - [ ] 🔄 **API接口**: 开放API接口
 
@@ -375,7 +378,7 @@ flowchart LR
 
 ## ⭐ Star 历史
 
-[![Star History Chart](https://api.star-history.com/svg?repos=BetaStreetOmnis/xhs_ai_publisher&type=Date)](https://star-history.com/#BetaStreetOmnis/xhs_ai_publisher&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=betastreetomnis/xhs_ai_publisher&type=Date)](https://star-history.com/#betastreetomnis/xhs_ai_publisher&Date)
 
 ---
 

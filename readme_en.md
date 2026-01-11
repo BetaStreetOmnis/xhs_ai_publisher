@@ -68,7 +68,7 @@
 ### 🚀 Automated Publishing
 - 📱 **One-Click Login**: Quick login with phone number
 - 📋 **Content Preview**: Complete preview before publishing
-- ⏰ **Scheduled Publishing (Basic)**: Task management + trigger; execution is currently simulated (extendable to real publishing)
+- ⏰ **Scheduled Publishing (Unattended)**: Task management + publish at the scheduled time (app must stay running and account must be logged in)
 - 💾 **State Saving**: Auto-save login status
 
 </td>
@@ -103,6 +103,7 @@
 📦 xhs_ai_publisher/
 ├── 📂 assets/                       # 🧩 Bundled template showcase (optional)
 ├── 📂 templates/                    # 🧩 Prompt/Cover templates (extendable)
+├── 📂 docs/                         # 📚 Documentation
 ├── 🧰 install.sh                    # 📦 One-click install (macOS/Linux)
 ├── 🧰 install.bat                   # 📦 One-click install (Windows)
 ├── 📂 src/                          # 🔧 Source Code Directory
@@ -111,7 +112,7 @@
 │   │   ├── 📂 services/             # 🔧 Business Service Layer
 │   │   ├── 📂 pages/                # 🎨 UI Pages
 │   │   ├── 📂 processor/            # 🧩 Content/Image processing
-│   │   ├── 📂 scheduler/            # ⏰ Scheduling (currently simulated)
+│   │   ├── 📂 scheduler/            # ⏰ Scheduling (publish at scheduled time)
 │   │   └── 📂 ai_integration/       # 🤖 AI adapters (experimental)
 │   ├── 📂 web/                      # 🌐 Web Interface
 │   │   ├── 📂 templates/            # 📄 HTML Templates
@@ -162,7 +163,7 @@
 
 ```bash
 # 1️⃣ Clone the repository
-git clone https://github.com/BetaStreetOmnis/xhs_ai_publisher.git
+git clone https://github.com/betastreetomnis/xhs_ai_publisher.git
 cd xhs_ai_publisher
 
 # 2️⃣ Create virtual environment (recommended)
@@ -216,6 +217,8 @@ python main.py
 ---
 
 ## 📱 User Guide
+
+> 📘 Xiaohongshu content tutorial (Chinese): [From 0 to 1](./docs/xhs_tutorial.md)
 
 ### 🎯 Basic Usage Flow
 
@@ -303,7 +306,7 @@ flowchart LR
 - `~/.xhs_system/ms-playwright/`: Playwright browser cache
 - `~/.xhs_system/logs/`: runtime logs
 - `~/.xhs_system/hotspots_cache.json`: hotspot cache
-- `~/.xhs_system/schedule_tasks.json`: scheduled tasks (basic)
+- `~/.xhs_system/schedule_tasks.json`: scheduled tasks
 
 ### 🌐 Proxy/Fingerprint
 
@@ -326,7 +329,7 @@ flowchart LR
 - [x] ✅ **Proxy/Fingerprint**: Browser environment management + session integration (deeper spoofing WIP)
 - [x] ✅ **Template Library**: Prompt templates + system image template import + cover templates
 - [x] ✅ **Hotspot Center**: Multi-platform hot lists + one-click to homepage topic
-- [ ] 🔄 **Scheduled Publishing**: Basic simulation now; integrate real publishing workflow next
+- [x] ✅ **Scheduled Publishing**: Task management + publish at the scheduled time (app must stay running)
 - [ ] 🔄 **Performance Analytics**: Stats/analysis panel is still evolving
 - [ ] 🔄 **API Interface**: Open API endpoints
 
@@ -392,7 +395,7 @@ flowchart LR
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=BetaStreetOmnis/xhs_ai_publisher&type=Date)](https://star-history.com/#BetaStreetOmnis/xhs_ai_publisher&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=betastreetomnis/xhs_ai_publisher&type=Date)](https://star-history.com/#betastreetomnis/xhs_ai_publisher&Date)
 
 ---
 

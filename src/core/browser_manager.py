@@ -129,28 +129,16 @@ class BrowserManager:
             // 移除webdriver属性
             delete navigator.__proto__.webdriver;
             
-            // 禁用Service Worker注册以避免错误
-            if ('serviceWorker' in navigator) {
-                const originalRegister = navigator.serviceWorker.register;
-                navigator.serviceWorker.register = function() {
-                    return Promise.reject(new Error('Service Worker registration disabled'));
-                };
-                
-                // 也可以完全移除serviceWorker
-                Object.defineProperty(navigator, 'serviceWorker', {
-                    get: () => undefined
-                });
-            }
-            
-            // 捕获并忽略Service Worker相关错误
+            // 注意：不要禁用 Service Worker。
+            // 小红书创作平台的上传/编辑流程可能依赖 SW/缓存/路由模块；
+            // 禁用后可能出现“选完图片但不出预览/不进入编辑页”的卡死。
+            // 如果出现与 serviceWorker 相关的噪声报错，只做忽略，不拦截其注册。
             window.addEventListener('error', function(e) {
                 if (e.message && e.message.includes('serviceWorker')) {
                     e.preventDefault();
                     return false;
                 }
             });
-            
-            // 捕获未处理的Promise拒绝（Service Worker相关）
             window.addEventListener('unhandledrejection', function(e) {
                 if (e.reason && e.reason.message && e.reason.message.includes('serviceWorker')) {
                     e.preventDefault();

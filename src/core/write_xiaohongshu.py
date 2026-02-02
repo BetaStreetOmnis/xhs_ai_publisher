@@ -1293,6 +1293,41 @@ class XiaohongshuPoster:
                         except Exception as e:
                             print(f"自动恢复重试失败: {e}")
 
+                    # 最终兜底：到「笔记管理」里用标题确认是否已发布（更可靠）
+                    if publish_result is not True:
+                        try:
+                            print("尝试通过『笔记管理』确认是否已发布...")
+                            # 进入笔记管理（优先 UI 点击，其次直接跳转）
+                            try:
+                                nav = self.page.locator("text=笔记管理").first
+                                await nav.wait_for(state="visible", timeout=8000)
+                                await nav.click(timeout=8000)
+                            except Exception:
+                                await self.page.goto("https://creator.xiaohongshu.com/creator/notes", wait_until="domcontentloaded")
+
+                            # 等列表渲染，检查标题文本是否出现
+                            found = False
+                            deadline2 = asyncio.get_event_loop().time() + 20
+                            while asyncio.get_event_loop().time() < deadline2:
+                                try:
+                                    if title and await self.page.query_selector(f"text={title}"):
+                                        found = True
+                                        break
+                                except Exception:
+                                    pass
+                                await asyncio.sleep(0.5)
+
+                            if found:
+                                publish_result = True
+                                publish_reason = "笔记管理确认已发布"
+                                if self.page:
+                                    await self.page.screenshot(path="debug_publish_confirmed_in_manage.png")
+                            else:
+                                if self.page:
+                                    await self.page.screenshot(path="debug_publish_not_found_in_manage.png")
+                        except Exception as e:
+                            print(f"笔记管理确认失败: {e}")
+
                     if publish_result is True:
                         print(f"✅ 发布成功（判定依据: {publish_reason}）")
                     elif publish_result is False:
@@ -1300,7 +1335,7 @@ class XiaohongshuPoster:
                         if self.page:
                             await self.page.screenshot(path="debug_publish_not_confirmed.png")
                     else:
-                        print("⚠️ 已点击发布，但 20s 内未能确认发布成功/失败")
+                        print("⚠️ 已点击发布，但未能确认发布成功/失败")
                         if self.page:
                             await self.page.screenshot(path="debug_publish_unknown.png")
 

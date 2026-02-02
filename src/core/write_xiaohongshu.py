@@ -1110,7 +1110,27 @@ class XiaohongshuPoster:
             except Exception as e:
                 print(f"内容输入失败: {e}")
 
-            # 自动点击发布
+            # 自动点击发布 + 发布结果判定
+            publish_result = None  # True/False
+            publish_reason = None
+
+            # 监听网络响应：捕获可能的发布接口/401 等
+            recent_responses = []
+
+            def _on_response(resp):
+                try:
+                    url = resp.url
+                    status = resp.status
+                    if any(k in url for k in ["publish", "note", "post", "submit", "create", "upload"]) or status in (401, 403, 429):
+                        recent_responses.append({"url": url, "status": status})
+                except Exception:
+                    pass
+
+            try:
+                self.page.on("response", _on_response)
+            except Exception:
+                pass
+
             print("尝试自动点击『发布』...")
             try:
                 publish_selectors = [
@@ -1128,24 +1148,93 @@ class XiaohongshuPoster:
                         break
                     except Exception:
                         continue
+
                 if not clicked and self.page:
+                    publish_result = False
+                    publish_reason = "未能点击到发布按钮"
                     print("⚠️ 未能自动点击发布按钮，已截图")
                     await self.page.screenshot(path="debug_publish_click_failed.png")
+                else:
+                    # 等待结果：优先成功提示，其次错误提示/跳登录
+                    success_markers = [
+                        "text=发布成功",
+                        "text=笔记发布成功",
+                        "text=已发布",
+                        "text=发布完成"
+                    ]
+                    error_markers = [
+                        "text=发布失败",
+                        "text=请先登录",
+                        "text=登录",
+                        "text=网络异常",
+                        "text=系统繁忙",
+                        "text=操作频繁",
+                        "text=请稍后再试"
+                    ]
+
+                    decided = False
+                    deadline = asyncio.get_event_loop().time() + 20
+                    while asyncio.get_event_loop().time() < deadline:
+                        # 成功
+                        for m in success_markers:
+                            try:
+                                if await self.page.query_selector(m):
+                                    publish_result = True
+                                    publish_reason = m
+                                    decided = True
+                                    break
+                            except Exception:
+                                continue
+                        if decided:
+                            break
+
+                        # 失败/跳转登录
+                        for m in error_markers:
+                            try:
+                                if await self.page.query_selector(m):
+                                    publish_result = False
+                                    publish_reason = m
+                                    decided = True
+                                    break
+                            except Exception:
+                                continue
+                        if decided:
+                            break
+
+                        await asyncio.sleep(0.5)
+
+                    if publish_result is None:
+                        # 兜底：根据网络响应判断（例如 401/403/429）
+                        bad = [r for r in recent_responses if r.get("status") in (401, 403, 429)]
+                        if bad:
+                            publish_result = False
+                            publish_reason = f"接口返回异常: {bad[-1]}"
+
+                    if publish_result is True:
+                        print(f"✅ 发布成功（判定依据: {publish_reason}）")
+                    elif publish_result is False:
+                        print(f"❌ 发布失败/未确认成功（判定依据: {publish_reason}）")
+                        if self.page:
+                            await self.page.screenshot(path="debug_publish_not_confirmed.png")
+                    else:
+                        print("⚠️ 已点击发布，但 20s 内未能确认发布成功/失败")
+                        if self.page:
+                            await self.page.screenshot(path="debug_publish_unknown.png")
+
             except Exception as e:
+                publish_result = False
+                publish_reason = f"点击发布异常: {e}"
                 print(f"自动点击发布失败: {e}")
                 if self.page:
                     await self.page.screenshot(path="debug_publish_click_error.png")
+            finally:
+                try:
+                    self.page.off("response", _on_response)
+                except Exception:
+                    pass
 
-            # 等待发布结果/页面提示（失败也截图）
-            try:
-                await asyncio.sleep(5)
-                # 常见成功提示/跳转（尽量宽松）
-                await self.page.wait_for_selector("text=发布成功", timeout=8000)
-                print("检测到『发布成功』提示")
-            except Exception:
-                pass
-
-            print("发布流程已执行（如未成功会保留截图供排查）")
+            print(f"发布流程结束：publish_result={publish_result}, reason={publish_reason}")
+            return publish_result
             
         except Exception as e:
             print(f"发布文章时出错: {str(e)}")

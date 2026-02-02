@@ -1139,28 +1139,53 @@ class XiaohongshuPoster:
 
             print("尝试自动点击『发布』...")
             try:
-                publish_selectors = [
-                    "button:has-text('发布')",
-                    ".el-button:has-text('发布')",
-                    "text=发布"
-                ]
-                clicked = False
-                for sel in publish_selectors:
+                # 只点底部主发布按钮：从所有“发布”按钮里选出页面最靠下的那个
+                publish_btns = self.page.locator("button:has-text('发布')")
+                await publish_btns.first.wait_for(state="visible", timeout=20000)
+
+                best = None  # (index, box)
+                count = await publish_btns.count()
+                for i in range(count):
                     try:
-                        await self.page.wait_for_selector(sel, timeout=10000)
-                        await self.page.click(sel, timeout=10000)
-                        print(f"已点击发布按钮: {sel}")
-                        clicked = True
-                        break
+                        el = publish_btns.nth(i)
+                        box = await el.bounding_box()
+                        if not box:
+                            continue
+                        # 选 y 最大（更靠下）的那个
+                        if (best is None) or (box["y"] > best[1]["y"]):
+                            best = (i, box)
                     except Exception:
                         continue
 
-                if not clicked and self.page:
+                if not best:
                     publish_result = False
-                    publish_reason = "未能点击到发布按钮"
-                    print("⚠️ 未能自动点击发布按钮，已截图")
-                    await self.page.screenshot(path="debug_publish_click_failed.png")
+                    publish_reason = "未找到可点击的发布按钮"
+                    print("⚠️ 未找到可点击的发布按钮，已截图")
+                    if self.page:
+                        await self.page.screenshot(path="debug_publish_click_failed.png")
                 else:
+                    i, box = best
+                    el = publish_btns.nth(i)
+                    # 点击前截图（用于确认点的是底部红色发布按钮）
+                    if self.page:
+                        await self.page.screenshot(path="debug_before_publish_click.png")
+
+                    # 滚动到可见 + 模拟真实鼠标点击
+                    try:
+                        await el.scroll_into_view_if_needed(timeout=8000)
+                    except Exception:
+                        pass
+
+                    cx = box["x"] + box["width"] / 2
+                    cy = box["y"] + box["height"] / 2
+                    await self.page.mouse.move(cx, cy)
+                    await asyncio.sleep(0.12)
+                    await self.page.mouse.down()
+                    await asyncio.sleep(0.12)
+                    await self.page.mouse.up()
+
+                    print(f"已点击发布按钮: bottom-most button index={i} at ({cx:.0f},{cy:.0f})")
+
                     # 等待结果：优先成功提示，其次错误提示/跳登录
                     success_markers = [
                         "text=发布成功",
@@ -1230,18 +1255,31 @@ class XiaohongshuPoster:
                                 raise Exception("仍在登录页，需人工登录一次")
 
                             # 再次点击发布（不重复输入，依赖草稿自动恢复；若没恢复则由上层再填）
-                            retry_clicked = False
-                            for sel in publish_selectors:
+                            retry_btns = self.page.locator("button:has-text('发布')")
+                            await retry_btns.first.wait_for(state="visible", timeout=20000)
+                            best2 = None
+                            cnt2 = await retry_btns.count()
+                            for j in range(cnt2):
                                 try:
-                                    await self.page.wait_for_selector(sel, timeout=8000)
-                                    await self.page.click(sel, timeout=8000)
-                                    retry_clicked = True
-                                    print(f"重试点击发布按钮: {sel}")
-                                    break
+                                    el2 = retry_btns.nth(j)
+                                    box2 = await el2.bounding_box()
+                                    if not box2:
+                                        continue
+                                    if (best2 is None) or (box2["y"] > best2[1]["y"]):
+                                        best2 = (j, box2)
                                 except Exception:
                                     continue
-                            if not retry_clicked:
-                                raise Exception("重试未能点击发布按钮")
+                            if not best2:
+                                raise Exception("重试未找到发布按钮")
+                            j, box2 = best2
+                            cx2 = box2["x"] + box2["width"] / 2
+                            cy2 = box2["y"] + box2["height"] / 2
+                            await self.page.mouse.move(cx2, cy2)
+                            await asyncio.sleep(0.12)
+                            await self.page.mouse.down()
+                            await asyncio.sleep(0.12)
+                            await self.page.mouse.up()
+                            print(f"重试点击发布按钮: bottom-most index={j}")
 
                             # 再等待一次成功提示
                             try:

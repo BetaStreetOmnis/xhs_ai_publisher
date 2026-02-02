@@ -1028,9 +1028,15 @@ class XiaohongshuPoster:
             # except:
             #     print("尝试点击编辑区域失败")
             
-            # 输入标题
+            # 输入标题（小红书此处限制 20 字）
             print("输入标题...")
             try:
+                # 标题长度校验/截断
+                if title and len(title) > 20:
+                    original = title
+                    title = title[:20]
+                    print(f"⚠️ 标题超 20 字，已自动截断: '{original}' -> '{title}'")
+
                 # 使用具体的标题选择器
                 title_selectors = [
                     "input[placeholder='填写标题会有更多赞哦～']",

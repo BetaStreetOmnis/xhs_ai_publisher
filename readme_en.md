@@ -296,7 +296,6 @@ flowchart LR
 - Prompt Template: Select from the dropdown; template files live in `templates/prompts/`
 - System image templates: Sidebar “⚙️ Backend Config” → “Templates” can select/import (imports external packs into `~/.xhs_system/system_templates` for cross-platform usage)
 - Cover templates: Sidebar “🖼️ Cover Center” applies a template to the homepage; generated images are cached in `~/.xhs_system/generated_imgs/` and can be downloaded from the homepage
-- Remote workflow: Removed (no remote workflow requests). Generation uses your configured model or a built-in fallback.
 
 ### ⚙️ Configure via `.env` (Optional, OpenAI-compatible recommended)
 

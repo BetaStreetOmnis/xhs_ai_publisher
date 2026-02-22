@@ -80,8 +80,6 @@
 
 ### 👥 User Management
 - 🔄 **Multi-Account / Users**: Create/switch/delete users; login/session data is isolated per user
-- 🌐 **Proxy Configuration**: Applied to publishing sessions via default “browser environment” (Playwright proxy)
-- 🔍 **Browser Fingerprints**: Applied to publishing sessions (UA/viewport/locale/timezone/geolocation); deeper WebGL/canvas spoofing is still WIP
 - 🗂️ **Local Storage**: Users/environments/config/logs are stored locally under `~/.xhs_system/`
 
 </td>
@@ -89,7 +87,6 @@
 
 ### 🛡️ Security & Stability
 - 🔐 **Data Encryption**: Model API keys are stored locally with encryption by default (`~/.xhs_system/keys.enc`)
-- 🛡️ **Anti-Detection**: Advanced anti-detection technology
 - 📝 **Logging**: Complete operation logging
 - 🔄 **Error Recovery**: Smart error handling and recovery
 
@@ -221,8 +218,6 @@ python main.py
 
 ## 📱 User Guide
 
-> 📘 Xiaohongshu content tutorial (Chinese): [From 0 to 1](./docs/xhs_tutorial.md)
-
 ### 🎯 Basic Usage Flow
 
 <div align="center">
@@ -352,12 +347,6 @@ XHS_IMG_BOXED_LIST_CARDS=false
 - `~/.xhs_system/hotspots_cache.json`: hotspot cache
 - `~/.xhs_system/schedule_tasks.json`: scheduled tasks
 
-### 🌐 Proxy/Fingerprint
-
-- Entry: Sidebar “🌐 Browser Environment”
-- Default environment is applied to publishing sessions (proxy/UA/viewport/locale/timezone/geolocation, etc.)
-- Deeper fingerprint spoofing (WebGL/canvas, etc.) is still WIP
-
 ---
 
 ## 📊 Roadmap
@@ -370,7 +359,6 @@ XHS_IMG_BOXED_LIST_CARDS=false
 
 - [x] ✅ **Basic Features**: Content generation and publishing
 - [x] ✅ **User Management**: Multi-user switching & local isolation
-- [x] ✅ **Proxy/Fingerprint**: Browser environment management + session integration (deeper spoofing WIP)
 - [x] ✅ **Template Library**: Prompt templates + system image template import + cover templates
 - [x] ✅ **Hotspot Center**: Multi-platform hot lists + one-click to homepage topic
 - [x] ✅ **Scheduled Publishing**: Task management + publish at the scheduled time (app must stay running)

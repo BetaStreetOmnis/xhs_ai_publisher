@@ -75,8 +75,6 @@
 
 ### 👥 用户管理
 - 🔄 **多账户/用户管理**: 支持新增/切换/删除用户；登录态与数据按用户隔离
-- 🌐 **代理配置**: 基于“浏览器环境”的默认项，已应用到发布会话（Playwright proxy）
-- 🔍 **浏览器指纹**: 已应用到发布会话（UA/viewport/locale/timezone/geolocation 等）；更深层 WebGL/canvas 仍在完善
 - 🗂️ **本地数据**: 用户/环境/配置/日志均落地本地（`~/.xhs_system/`）
 
 </td>
@@ -84,7 +82,6 @@
 
 ### 🛡️ 安全稳定
 - 🔐 **数据加密**: 模型 API Key 默认本地加密存储（`~/.xhs_system/keys.enc`）
-- 🛡️ **反检测**: 先进的反检测技术
 - 📝 **日志记录**: 完整的操作日志记录
 - 🔄 **错误恢复**: 智能错误处理和恢复
 
@@ -202,8 +199,6 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright 
 ---
 
 ## 📱 使用指南
-
-> 📘 更完整的小红书「选题/写法/封面/发布/运营」教程： [小红书从 0 到 1 教程](./docs/xhs_tutorial.md)
 
 ### 🎯 基础使用流程
 
@@ -334,12 +329,6 @@ XHS_IMG_BOXED_LIST_CARDS=false
 - `~/.xhs_system/hotspots_cache.json`：热点缓存
 - `~/.xhs_system/schedule_tasks.json`：定时发布任务
 
-### 🌐 代理/指纹
-
-- 入口：侧边栏「🌐 浏览器环境」
-- 默认环境会应用到发布会话（代理/UA/viewport/locale/timezone/geolocation 等）
-- 更深层指纹（WebGL/canvas 等）仍在完善
-
 ---
 
 ## 📊 开发路线图
@@ -352,7 +341,6 @@ XHS_IMG_BOXED_LIST_CARDS=false
 
 - [x] ✅ **基础功能**: 内容生成和发布
 - [x] ✅ **用户管理**: 多账户/当前用户切换/数据隔离
-- [x] ✅ **代理/指纹**: 浏览器环境管理 + 发布会话接入（深度指纹持续完善）
 - [x] ✅ **模板库**: 文案模板 + 系统图片模板导入 + 封面模板库
 - [x] ✅ **数据中心**: 多平台热榜采集 + 一键带回首页生成
 - [x] ✅ **定时发布**: 支持任务管理与到点自动发布（需保持程序运行）

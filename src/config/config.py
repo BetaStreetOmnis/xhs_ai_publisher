@@ -23,6 +23,7 @@ class Config:
                 "title": "测试标题",
             },
             "phone": "18888888888",
+            "country_code": "+86",
         }
         self.load_config()
 
@@ -84,6 +85,15 @@ class Config:
     def update_phone_config(self, phone):
         """更新手机号配置"""
         self.config['phone'] = phone
+        self.save_config()
+
+    def get_country_code_config(self):
+        """获取国家区号配置"""
+        return self.config.get('country_code', self.default_config['country_code'])
+
+    def update_country_code_config(self, country_code):
+        """更新国家区号配置"""
+        self.config['country_code'] = country_code
         self.save_config()
 
     def get_title_config(self):

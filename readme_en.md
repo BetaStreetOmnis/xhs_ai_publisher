@@ -67,7 +67,7 @@
 <td width="50%">
 
 ### 🚀 Automated Publishing
-- 📱 **One-Click Login**: Quick login with phone number
+- 📱 **One-Click Login**: Quick login with phone number, country-code selection, and manual browser completion when risk control is triggered
 - 🧩 **Import Login State**: Import Xiaohongshu login state from your system Chrome (useful for SMS/QR risk-control flows)
 - 📋 **Content Preview**: Complete preview before publishing
 - ⏰ **Scheduled Publishing (Unattended)**: Task management + publish at the scheduled time (app must stay running and account must be logged in)
@@ -150,13 +150,62 @@
 **One-click install**
 - macOS/Linux: `./install.sh` then `./启动程序.sh`
 - Windows: `install.bat` then `启动程序.bat`
+- On Windows, failed `install.bat` / `启动程序.bat` runs now keep the console open so the error stays visible
 - Flags: `--with-browser` (force install Chromium), `--skip-browser` (skip browser check/install)
+- `./启动程序.sh` prefers `venv/bin/python`, and automatically falls back to system `python3` / `python` if the venv interpreter is missing or broken
+
+**Login tool + service mode**
+- Inspired by projects such as `xiaohongshu-mcp` and `xhs-toolkit`, this repo now supports a split flow:
+  - first complete one interactive login and save browser state
+  - then reuse that saved state from the Web/API service or Docker in headless mode
+
+```bash
+python scripts/xhs_login_cli.py --phone 13800138000 --country-code +86
+```
+
+- The command opens a browser and saves `storage_state + cookies`
+- If SMS/QR/captcha risk control is triggered, complete it manually in the browser
+- Saved runtime data defaults to `~/.xhs_system/` or `XHS_DATA_DIR` if provided
+- If local `storage_state/cookies` are no longer valid, the login flow now auto-scans your system Chrome profiles, imports a usable Xiaohongshu session, and can be disabled with `XHS_AUTO_IMPORT_SYSTEM_CHROME_STATE=false`
+- When using a real persistent Chrome profile, extra stealth fingerprint overrides are now disabled by default; set `XHS_ENABLE_STEALTH_SCRIPT=true` only if you explicitly need them
+- Auto-publish now disables JS force-click / force input-change fallbacks by default; they are only enabled in manual-confirm mode or when `XHS_ENABLE_FORCE_DOM_ACTIONS=true` is set
+- If your system Chrome is already running, auto-import now skips opening an extra temporary Chrome window by default; use manual import when you explicitly want that flow
+
+**Docker deployment**
+
+> The desktop `PyQt` UI is not the right target for container GUI deployment. For containers, use the `FastAPI + Playwright` service mode.
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+- Web/API: `http://localhost:8000`
+- Health check: `http://localhost:8000/healthz`
+- Readiness check: `http://localhost:8000/readyz`
+
+Service optimization notes:
+- Web/Docker mode now uses **lazy browser runtime initialization** by default
+- Service startup only initializes basic managers and does not immediately launch Playwright
+- The browser runtime is initialized on demand when you first call login/publish
+- Set `XHS_WEB_EAGER_BROWSER=true` if you prefer eager browser warm-up at startup
+
+Recommended container flow:
+1. Run one interactive login locally with `python scripts/xhs_login_cli.py ...`
+2. Mount the saved state directory into the container (`./docker-data:/data` by default)
+3. Run the container in headless mode for publishing
+
+Notes:
+- `docker-compose.yml` enables `XHS_HEADLESS=true` by default
+- If the saved login state expires, headless mode now returns a clear message asking you to refresh the login state in a visible environment first
+- `docker compose ps` shows container health; the health check is based on `/healthz`
 
 **Troubleshooting**
 - Windows install fails (often PyQt5): use Python 3.11/3.12 (64-bit), avoid Python 3.13 or 32-bit Python
 - Linux browser launch fails: install system deps via `sudo python -m playwright install-deps chromium`
 - `qt.qpa.fonts ... Microsoft YaHei`: harmless Qt warning; the app now auto-selects an available system font
 - Some symbols show as tofu boxes (□/✕): usually your system font lacks that glyph (emoji/circled numbers/info symbols, etc.). Remove such symbols or install a font that supports them (the app also normalizes some characters).
+- Use `XHS_DATA_DIR=/your/path` if you want runtime data and saved login state in a custom directory (recommended for Docker/service deployments)
 
 <details>
 <summary>📥 <strong>Method 1: Source Installation (Recommended for Developers)</strong></summary>
@@ -184,6 +233,8 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright 
 # 5️⃣ Start the program (DB auto-inits on first launch)
 python main.py
 ```
+
+> On macOS/Linux you can also use `./启动程序.sh`; it auto-detects a working Python interpreter and falls back to the system Python when `venv/bin/python` is unavailable.
 
 </details>
 
@@ -265,8 +316,8 @@ flowchart LR
 6. **📱 Account Login**
    - Enter phone number
    - Receive and enter verification code
-   - System automatically saves login status
-   - If you hit risk-control / QR login: use “🧩 Import Login State” to import from system Chrome (quit Chrome first to avoid profile lock)
+   - System automatically saves login status; if the local state expires, login now tries to auto-detect a usable Xiaohongshu session from your system Chrome profiles
+   - If you want to force or manually choose a profile: use “🧩 Import Login State” (quit Chrome first to avoid profile lock)
 	
 7. **🔗 Web Link Import (Optional)**
    - Paste a URL in the homepage “🔗 Import” field

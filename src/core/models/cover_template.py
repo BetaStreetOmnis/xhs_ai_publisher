@@ -1,8 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON
-from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 
-Base = declarative_base()
+from .user import Base
 
 class CoverTemplate(Base):
     __tablename__ = 'cover_templates'

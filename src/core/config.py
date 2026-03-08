@@ -5,6 +5,27 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    if not value:
+        return default
+    if value in {"1", "true", "yes", "y", "on"}:
+        return True
+    if value in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name, "").strip()
+    if not value:
+        return default
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
 @dataclass
 class BrowserConfig:
     """浏览器配置"""
@@ -88,8 +109,12 @@ class AppConfig:
     
     def __post_init__(self):
         if self.data_dir is None:
-            home_dir = Path.home()
-            self.data_dir = str(home_dir / '.xhs_system')
+            env_dir = os.getenv("XHS_DATA_DIR", "").strip() or os.getenv("XHS_APP_DATA_DIR", "").strip()
+            if env_dir:
+                self.data_dir = env_dir
+            else:
+                home_dir = Path.home()
+                self.data_dir = str(home_dir / '.xhs_system')
 
 
 class ConfigManager:
@@ -104,13 +129,25 @@ class ConfigManager:
         
         # 加载配置文件
         self.load_config()
+        self._apply_env_overrides()
     
     def _get_default_config_file(self) -> str:
         """获取默认配置文件路径"""
-        home_dir = Path.home()
-        config_dir = home_dir / '.xhs_system'
+        data_dir = Path(os.getenv("XHS_DATA_DIR", "").strip() or os.getenv("XHS_APP_DATA_DIR", "").strip() or (Path.home() / '.xhs_system'))
+        config_dir = data_dir
         config_dir.mkdir(exist_ok=True)
         return str(config_dir / 'config.json')
+
+    def _apply_env_overrides(self) -> None:
+        """允许服务/Docker 通过环境变量覆盖关键配置。"""
+        self.browser.headless = _env_flag("XHS_HEADLESS", self.browser.headless)
+        self.web.host = os.getenv("XHS_WEB_HOST", "").strip() or self.web.host
+        self.web.port = _env_int("XHS_WEB_PORT", self.web.port)
+        self.web.debug = _env_flag("XHS_WEB_DEBUG", self.web.debug)
+        self.web.reload = _env_flag("XHS_WEB_RELOAD", self.web.reload)
+        data_dir = os.getenv("XHS_DATA_DIR", "").strip() or os.getenv("XHS_APP_DATA_DIR", "").strip()
+        if data_dir:
+            self.app.data_dir = data_dir
     
     def load_config(self) -> None:
         """从文件加载配置"""

@@ -1,0 +1,10 @@
+.git
+.gitignore
+venv
+__pycache__
+.pytest_cache
+reports
+output
+debug_publish_button.png
+error_screenshot.png
+docker-data

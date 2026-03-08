@@ -14,6 +14,7 @@ class AuthManager:
     
     def __init__(self):
         self.browser_manager = None
+        self.poster = None
         self.token_file = None
         self.cookies_file = None
         self.token = None
@@ -27,12 +28,16 @@ class AuthManager:
         self.token_file = app_dir / "xiaohongshu_token.json"
         self.cookies_file = app_dir / "xiaohongshu_cookies.json"
     
-    async def initialize(self, browser_manager):
+    async def initialize(self, browser_manager, poster=None):
         """初始化认证管理器"""
         self.browser_manager = browser_manager
+        self.poster = poster
         self.token = self._load_token()
         await self._load_cookies()
         logger.info("认证管理器初始化完成")
+
+    def set_poster(self, poster):
+        self.poster = poster
     
     async def cleanup(self):
         """清理资源"""
@@ -126,17 +131,22 @@ class AuthManager:
             bool: 登录是否成功
         """
         try:
+            phone = (phone or "").strip()
+            country_code = (country_code or "+86").strip() or "+86"
+
             # 如果token有效，先尝试使用cookies登录
             if self.token:
                 if await self._try_cookie_login():
                     return True
             
-            # cookies登录失败，进行手动登录流程
-            logger.info(f"开始手机号登录流程: {phone}")
-            
-            # 这里不实际执行登录，因为登录逻辑在Web API中处理
-            # 这个方法主要用于保存登录状态
-            return True
+            logger.info(f"开始手机号登录流程: {phone} ({country_code})")
+
+            if not self.poster:
+                logger.warning("poster 未初始化，回退到 cookie 登录检查")
+                return await self._try_cookie_login()
+
+            await self.poster.login(phone, country_code)
+            return await self.is_logged_in()
             
         except Exception as e:
             logger.error(f"登录失败: {str(e)}", exc_info=True)
@@ -168,6 +178,13 @@ class AuthManager:
             return False
         
         try:
+            if self.poster and getattr(self.poster, "context", None):
+                try:
+                    if await self.poster._is_creator_logged_in():
+                        return True
+                except Exception:
+                    pass
+
             current_url = self.browser_manager.page.url
             
             # 如果当前不在小红书域名，先导航过去
@@ -175,15 +192,63 @@ class AuthManager:
                 await self.browser_manager.page.goto(config.xiaohongshu.base_url, wait_until="networkidle")
                 await asyncio.sleep(2)
                 current_url = self.browser_manager.page.url
-            
-            # 检查URL是否包含login，如果不包含说明已登录
-            is_logged_in = "login" not in current_url
+
+            is_logged_in = False
+
+            if self._is_creator_workspace_url(current_url):
+                is_logged_in = await self._page_has_logged_in_markers()
+
+                # 某些账号在创作者中心已登录，但接口探针会短暂返回 401。
+                # 此时只要页面明确进入工作台，也视为已登录。
+                if not is_logged_in:
+                    is_logged_in = True
+
             logger.debug(f"登录状态检查: {is_logged_in}, URL: {current_url}")
             
             return is_logged_in
             
         except Exception as e:
             logger.error(f"检查登录状态失败: {str(e)}")
+            return False
+
+    @staticmethod
+    def _is_creator_workspace_url(url: str) -> bool:
+        current_url = str(url or "").strip().lower()
+        if not current_url or "xiaohongshu.com" not in current_url:
+            return False
+        if "/login" in current_url or "website-login/error" in current_url:
+            return False
+        return "creator.xiaohongshu.com" in current_url
+
+    async def _page_has_logged_in_markers(self) -> bool:
+        page = getattr(self.browser_manager, "page", None)
+        if not page:
+            return False
+
+        script = """
+            () => {
+                const hasUserInfo = Boolean(
+                    localStorage.getItem('USER_INFO') ||
+                    localStorage.getItem('USER_INFO_FOR_BIZ')
+                );
+
+                const bodyText = (document.body?.innerText || '').replace(/\\s+/g, ' ');
+                const markers = [
+                    '创作服务平台',
+                    '发布笔记',
+                    '笔记管理',
+                    '数据看板',
+                    '创作学院',
+                ];
+                const hasWorkspaceText = markers.some((marker) => bodyText.includes(marker));
+
+                return hasUserInfo || hasWorkspaceText;
+            }
+        """
+
+        try:
+            return bool(await page.evaluate(script))
+        except Exception:
             return False
     
     async def get_user_info(self) -> Optional[Dict[str, Any]]:

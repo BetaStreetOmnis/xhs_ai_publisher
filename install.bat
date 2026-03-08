@@ -122,6 +122,7 @@ exit /b 0
 :error
 echo.
 echo ❌ Install failed.
+pause
 exit /b 1
 
 :badpython
@@ -131,6 +132,7 @@ if exist "%VENV_PY%" (
 ) else if not "%PYTHON_CMD%"=="" (
   %PYTHON_CMD% -V
 )
+pause
 exit /b 1
 
 :pytoonew
@@ -141,6 +143,7 @@ if exist "%VENV_PY%" (
 ) else if not "%PYTHON_CMD%"=="" (
   %PYTHON_CMD% -V
 )
+pause
 exit /b 1
 
 :py32bit
@@ -151,6 +154,7 @@ if exist "%VENV_PY%" (
 ) else if not "%PYTHON_CMD%"=="" (
   %PYTHON_CMD% -V
 )
+pause
 exit /b 1
 
 :check_playwright

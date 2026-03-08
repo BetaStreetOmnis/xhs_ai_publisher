@@ -62,7 +62,7 @@
 <td width="50%">
 
 ### 🚀 自动化发布
-- 📱 **一键登录**: 支持手机号快速登录
+- 📱 **一键登录**: 支持手机号快速登录，支持国家区号选择；如遇风控可切换手动完成登录
 - 🧩 **导入登录态**: 支持从系统 Chrome 导入小红书登录态（适用于短信/扫码风控后的登录复用）
 - 📋 **内容预览**: 发布前完整预览效果
 - ⏰ **定时发布（无人值守）**: 支持任务管理与到点自动发布（需保持程序运行且账号已登录）
@@ -158,6 +158,8 @@ chmod +x install.sh 启动程序.sh
 ./启动程序.sh
 ```
 
+> `./启动程序.sh` 会优先使用 `venv/bin/python`；若虚拟环境解释器缺失、软链失效或环境损坏，会自动回退到系统 `python3` / `python`，不会写死机器路径。
+
 ```bat
 :: Windows
 install.bat
@@ -167,6 +169,58 @@ install.bat
 > 默认会检测 Playwright 浏览器并在缺失时自动安装；可用参数：
 > - 强制安装：`./install.sh --with-browser` / `install.bat --with-browser`
 > - 跳过浏览器：`./install.sh --skip-browser` / `install.bat --skip-browser`
+> - Windows 双击 `启动程序.bat` / `install.bat` 失败时，现在会保留报错窗口，方便定位问题
+
+#### 🧩 登录工具 + 服务模式（参考社区常见做法）
+
+参考 `xiaohongshu-mcp`、`xhs-toolkit` 这类项目的思路，当前仓库也支持：
+- **先在可视化环境完成一次登录，保存登录态**
+- **再由 Web/API 服务或 Docker 无头复用该登录态执行发布**
+
+本地获取登录态：
+
+```bash
+python scripts/xhs_login_cli.py --phone 13800138000 --country-code +86
+```
+
+说明：
+- 该命令会打开浏览器并尽量复用/保存 `storage_state + cookies`
+- 若命中验证码/扫码/滑块风控，可按提示在浏览器中手动完成
+- 成功后，登录态默认保存在 `~/.xhs_system/`（或 `XHS_DATA_DIR` 指定目录）
+- 当本地 `storage_state/cookies` 失效时，登录流程会自动尝试扫描系统 Chrome 的多个 Profile，识别可用的小红书登录态并导入；可用 `XHS_AUTO_IMPORT_SYSTEM_CHROME_STATE=false` 关闭
+- 使用真实 Chrome 持久化 Profile 时，默认不再注入额外 stealth 指纹覆写；如确有需要可设置 `XHS_ENABLE_STEALTH_SCRIPT=true`
+- 自动发布默认禁用 JS 强制点击/强制 input/change 兜底；仅手动确认模式或显式设置 `XHS_ENABLE_FORCE_DOM_ACTIONS=true` 时才启用
+- 若系统 Chrome 正在运行，自动识别登录态会默认跳过，避免额外弹出多窗口；需要手动导入时再显式操作
+
+#### 🐳 Docker 部署（推荐 Web/API 模式）
+
+> 桌面版 `PyQt` 不适合直接做容器 GUI 部署；**容器里推荐运行 `FastAPI + Playwright` 服务模式**。
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+默认暴露：
+- Web/API：`http://localhost:8000`
+- 健康检查：`http://localhost:8000/healthz`
+- 就绪检查：`http://localhost:8000/readyz`
+
+服务优化说明：
+- 现在 Web/Docker 模式默认采用 **懒加载浏览器运行时**
+- 服务启动时只初始化基础管理器，不会立刻拉起 Playwright 浏览器
+- 第一次调用登录/发布接口时，才按需初始化浏览器运行时
+- 如需启动即预热浏览器，可设置 `XHS_WEB_EAGER_BROWSER=true`
+
+容器部署建议流程：
+1. 先在本机可视化环境执行一次 `python scripts/xhs_login_cli.py ...` 获取登录态
+2. 将登录态目录挂载到容器的 `/data`（本仓库默认映射 `./docker-data:/data`）
+3. 再以无头模式运行容器服务进行发布
+
+注意：
+- 默认 `docker-compose.yml` 中启用了 `XHS_HEADLESS=true`
+- 如果当前登录态失效，无头模式不会弹验证码窗口，而会明确提示需要先在有界面环境重新登录
+- `docker compose ps` 可直接看到健康状态；健康检查依赖 `/healthz`
 
 #### 📥 手动安装（高级用户）
 
@@ -187,8 +241,11 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.xhs_system/ms-playwright" python -m playwright 
 ./启动程序.sh
 ```
 
+> `./启动程序.sh` 会自动检测可用 Python；如果本地 `venv/bin/python` 已损坏，也会回退到系统 Python 启动，并提示你后续可用 `./install.sh` 修复环境。
+
 提示：
 - 运行数据默认存放于 `~/.xhs_system/`（数据库、日志、浏览器缓存等）
+- 也可通过 `XHS_DATA_DIR=/your/path` 改为自定义目录（Docker/服务模式推荐）
 
 常见问题：
 - Windows 安装失败（多为 PyQt5）：请用 Python 3.11/3.12（64 位），避免 Python 3.13 或 32 位 Python
@@ -245,10 +302,10 @@ flowchart LR
    - 也可在首页右侧预览区点击「🧩 封面模板」快速跳转
 
 6. **📱 账户登录**
-   - 输入手机号码
-   - 接收并输入验证码
-   - 系统自动保存登录状态
-   - 如遇风控/扫码：可点击「🧩 导入登录态」从系统 Chrome 导入（建议先完全退出 Chrome，避免 Profile 被占用）
+   - 选择国家区号并输入手机号码
+   - 接收并输入验证码；如遇扫码/滑块风控，可取消输入后在浏览器中手动完成登录
+   - 系统自动保存登录状态；若本地登录态失效，会自动尝试从系统 Chrome Profile 识别并导入可用登录态
+   - 如需手动指定/强制导入：可点击「🧩 导入登录态」从系统 Chrome 导入（建议先完全退出 Chrome，避免 Profile 被占用）
 
 7. **🔗 网页链接导入（可选）**
    - 首页「🔗 导入」粘贴网页链接

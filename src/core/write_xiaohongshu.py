@@ -8,9 +8,57 @@ import subprocess
 import logging
 import asyncio
 from glob import glob
-from PyQt5.QtWidgets import QInputDialog, QLineEdit
-from PyQt5.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
-from PyQt5.QtWidgets import QApplication
+from typing import List
+
+from src.core.services.chrome_login_state_service import import_login_state_from_system_chrome
+
+try:
+    from PyQt5.QtWidgets import QInputDialog, QLineEdit, QApplication
+    from PyQt5.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
+except Exception:
+    class _DummySignal:
+        def emit(self, *args, **kwargs):
+            return None
+
+    def pyqtSignal(*args, **kwargs):
+        return _DummySignal()
+
+    def pyqtSlot(*args, **kwargs):
+        def _decorator(func):
+            return func
+        return _decorator
+
+    class QObject:
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
+    class QMetaObject:
+        @staticmethod
+        def invokeMethod(obj, method_name, *args, **kwargs):
+            return getattr(obj, method_name)()
+
+    class Qt:
+        class ConnectionType:
+            BlockingQueuedConnection = None
+
+    class QThread:
+        @staticmethod
+        def currentThread():
+            return None
+
+    class QApplication:
+        @staticmethod
+        def instance():
+            return None
+
+    class QLineEdit:
+        class EchoMode:
+            Normal = None
+
+    class QInputDialog:
+        @staticmethod
+        def getText(*args, **kwargs):
+            return "", False
 log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
 
@@ -23,10 +71,22 @@ class VerificationCodeHandler(QObject):
         self.dialog = None
         
     async def get_verification_code(self):
+        app = QApplication.instance()
+        if app is None:
+            try:
+                if sys.stdin and sys.stdin.isatty():
+                    code = input("请输入验证码（直接回车则改为在浏览器中手动完成登录）: ").strip()
+                    self.code = code
+                    return self.code
+            except Exception:
+                pass
+            self.code = ""
+            return self.code
+
         # 确保在主线程中执行
-        if QApplication.instance().thread() != QThread.currentThread():
+        if app.thread() != QThread.currentThread():
             # 如果不在主线程，使用moveToThread移动到主线程
-            self.moveToThread(QApplication.instance().thread())
+            self.moveToThread(app.thread())
             # 使用invokeMethod确保在主线程中执行
             QMetaObject.invokeMethod(self, "_show_dialog", Qt.ConnectionType.BlockingQueuedConnection)
         else:
@@ -65,7 +125,30 @@ class XiaohongshuPoster:
         self.loop = None
         self.user_id = user_id
         self.browser_environment = browser_environment
+        self._owns_browser_session = True
+        self.token = None
+        self._last_sso_warmup_at = 0.0
+        self._setup_storage_paths()
         # 不再在初始化时调用 initialize，而是让调用者显式调用
+
+    def _setup_storage_paths(self):
+        app_dir = self._get_user_storage_dir()
+        os.makedirs(app_dir, exist_ok=True)
+        self.token_file = os.path.join(app_dir, "xiaohongshu_token.json")
+        self.cookies_file = os.path.join(app_dir, "xiaohongshu_cookies.json")
+        self.storage_state_file = os.path.join(app_dir, "xiaohongshu_storage_state.json")
+        self.token = self._load_token()
+
+    def attach_browser_session(self, *, playwright=None, browser=None, context=None, page=None):
+        """复用外部已初始化的浏览器会话。"""
+        self.playwright = playwright
+        self.browser = browser
+        self.context = context
+        self.page = page
+        self._owns_browser_session = False
+
+    async def cleanup(self):
+        await self.close(force=True)
 
     @staticmethod
     def _is_truthy(value, *, default: bool = False) -> bool:
@@ -84,6 +167,22 @@ class XiaohongshuPoster:
     def _reset_auth_issue(self) -> None:
         self._auth_issue = False
         self._auth_issue_url = None
+
+    async def _has_blocking_auth_issue(self, current_url: str = "") -> bool:
+        """Only treat auth issues as blocking when the main page actually leaves creator workspace."""
+        try:
+            url = str(current_url or getattr(self.page, "url", "") or "")
+        except Exception:
+            url = str(current_url or "")
+        lowered = url.lower()
+
+        if "website-login/error" in lowered or "/login" in lowered:
+            return True
+
+        if "creator.xiaohongshu.com" in lowered:
+            return False
+
+        return bool(getattr(self, "_auth_issue", False))
 
     async def _is_creator_logged_in(self) -> bool:
         """Best-effort login check without navigating away from current page."""
@@ -162,24 +261,70 @@ class XiaohongshuPoster:
             pass
         return False
 
-    async def _warmup_xhs_sso(self) -> None:
-        """让 SSO 覆盖到 www 域名，避免发布页调用 www.* 接口返回 401 无登录信息。"""
+    async def _get_cookie_names_for_url(self, url: str) -> List[str]:
+        if not self.context:
+            return []
+        try:
+            cookies = await self.context.cookies(url)
+            return sorted({(c.get("name") or "").strip() for c in cookies if (c.get("name") or "").strip()})
+        except Exception:
+            return []
+
+    def _allow_force_dom_actions(self, *, manual_mode: bool = False) -> bool:
+        return self._is_truthy(
+            self._get_env_value("XHS_ENABLE_FORCE_DOM_ACTIONS", None),
+            default=bool(manual_mode),
+        )
+
+    async def _warmup_xhs_sso(self, *, force_navigation: bool = False) -> None:
+        """按需让 SSO 覆盖到 www 域名，避免发布页调用 www.* 接口返回 401。"""
         if not self.page:
             return
+
+        current_url = ""
         try:
-            await self.page.goto("https://www.xiaohongshu.com/", wait_until="domcontentloaded", timeout=30_000)
-            await asyncio.sleep(1.5)
-            try:
-                cookies = await self.context.cookies("https://www.xiaohongshu.com")
-                names = sorted({(c.get("name") or "").strip() for c in cookies if (c.get("name") or "").strip()})
-                print(f"SSO 同步: www cookies={len(cookies)} names={names[:12]}")
-            except Exception:
-                pass
+            current_url = str(self.page.url or "")
         except Exception:
-            pass
+            current_url = ""
+
+        www_cookie_names = await self._get_cookie_names_for_url("https://www.xiaohongshu.com")
+        now = time.time()
+        if (not force_navigation) and www_cookie_names and (now - float(getattr(self, "_last_sso_warmup_at", 0.0) or 0.0) < 120):
+            return
+
+        if (not force_navigation) and www_cookie_names and "creator.xiaohongshu.com" in current_url.lower():
+            self._last_sso_warmup_at = now
+            return
+
+        return_url = ""
+        lowered = current_url.lower()
+        if current_url and "xiaohongshu.com" in lowered and "/login" not in lowered:
+            return_url = current_url
+
         try:
-            await self.page.goto("https://creator.xiaohongshu.com/new/home", wait_until="domcontentloaded", timeout=30_000)
-            await asyncio.sleep(1.0)
+            req = getattr(self.context, "request", None) if self.context else None
+            if req is not None:
+                resp = await req.get("https://www.xiaohongshu.com/", timeout=30_000)
+                try:
+                    dispose = getattr(resp, "dispose", None)
+                    if callable(dispose):
+                        await dispose()
+                except Exception:
+                    pass
+            else:
+                await self.page.goto("https://www.xiaohongshu.com/", wait_until="domcontentloaded", timeout=30_000)
+            await asyncio.sleep(0.4)
+            names = await self._get_cookie_names_for_url("https://www.xiaohongshu.com")
+            if names:
+                print(f"SSO 同步: www cookies={len(names)} names={names[:12]}")
+            self._last_sso_warmup_at = time.time()
+        except Exception:
+            return
+
+        try:
+            if return_url and req is None and return_url != (self.page.url or ""):
+                await self.page.goto(return_url, wait_until="domcontentloaded", timeout=30_000)
+                await asyncio.sleep(0.6)
         except Exception:
             pass
 
@@ -208,8 +353,7 @@ class XiaohongshuPoster:
         return os.getenv(str(key), default)
 
     def _get_user_storage_dir(self) -> str:
-        home_dir = os.path.expanduser('~')
-        base_dir = os.path.join(home_dir, '.xhs_system')
+        base_dir = str(os.getenv("XHS_DATA_DIR", "").strip() or os.getenv("XHS_APP_DATA_DIR", "").strip() or os.path.join(os.path.expanduser('~'), '.xhs_system'))
         if self.user_id is None:
             return base_dir
         return os.path.join(base_dir, "users", str(self.user_id))
@@ -584,15 +728,8 @@ class XiaohongshuPoster:
             except Exception:
                 pass
 
-            # 获取用户数据目录（多用户隔离 token/cookies/storage_state）
+            self._setup_storage_paths()
             app_dir = self._get_user_storage_dir()
-            os.makedirs(app_dir, exist_ok=True)
-
-            # 设置 token/cookies/storage_state 文件路径
-            self.token_file = os.path.join(app_dir, "xiaohongshu_token.json")
-            self.cookies_file = os.path.join(app_dir, "xiaohongshu_cookies.json")
-            self.storage_state_file = os.path.join(app_dir, "xiaohongshu_storage_state.json")
-            self.token = self._load_token()
 
             # 启动参数：默认尽量接近真实浏览器，避免过多“反常”flags 触发风控/登录异常
             args_mode = str(self._get_env_value("browser_args_mode", "") or "").strip().lower()
@@ -648,7 +785,7 @@ class XiaohongshuPoster:
                 chosen_args = list(chosen_args) + [f"--profile-directory={chrome_profile_directory}"]
 
             launch_args = {
-                'headless': False,
+                'headless': self._is_truthy(self._get_env_value("XHS_HEADLESS", None), default=False),
                 # 部分机器/环境启动较慢，适当拉长超时避免“偶发启动失败”
                 'timeout': 60_000,
                 'args': chosen_args,
@@ -723,8 +860,13 @@ class XiaohongshuPoster:
                             **merged,
                         )
                         self.browser = getattr(self.context, "browser", None)
-                        pages = getattr(self.context, "pages", None) or []
+                        pages = list(getattr(self.context, "pages", None) or [])
                         self.page = pages[0] if pages else await self.context.new_page()
+                        for extra_page in pages[1:]:
+                            try:
+                                await extra_page.close()
+                            except Exception:
+                                pass
                         print(f"使用 persistent profile: {chrome_user_data_dir}")
                         break
                     except Exception as e:
@@ -882,77 +1024,83 @@ class XiaohongshuPoster:
             except Exception:
                 pass
             
-            # 注入stealth.min.js
-            webgl_vendor = self._get_env_value("webgl_vendor") or "Intel Open Source Technology Center"
-            webgl_renderer = self._get_env_value("webgl_renderer") or "Mesa DRI Intel(R) HD Graphics (SKL GT2)"
-            platform = self._get_env_value("platform") or ""
-            webgl_vendor_js = json.dumps(webgl_vendor, ensure_ascii=False)
-            webgl_renderer_js = json.dumps(webgl_renderer, ensure_ascii=False)
-            platform_js = json.dumps(platform, ensure_ascii=False)
-            stealth_js = """
-            (function(){
-                const __xhs_webgl_vendor = %s;
-                const __xhs_webgl_renderer = %s;
-                const __xhs_platform = %s;
+            enable_stealth_script = self._is_truthy(
+                self._get_env_value("XHS_ENABLE_STEALTH_SCRIPT", None),
+                default=not bool(use_persistent_context),
+            )
+            if enable_stealth_script:
+                webgl_vendor = self._get_env_value("webgl_vendor") or "Intel Open Source Technology Center"
+                webgl_renderer = self._get_env_value("webgl_renderer") or "Mesa DRI Intel(R) HD Graphics (SKL GT2)"
+                platform = self._get_env_value("platform") or ""
+                webgl_vendor_js = json.dumps(webgl_vendor, ensure_ascii=False)
+                webgl_renderer_js = json.dumps(webgl_renderer, ensure_ascii=False)
+                platform_js = json.dumps(platform, ensure_ascii=False)
+                stealth_js = """
+                (function(){
+                    const __xhs_webgl_vendor = %s;
+                    const __xhs_webgl_renderer = %s;
+                    const __xhs_platform = %s;
 
-                try {
-                    const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
-                    if (typeof originalQuery === 'function') {
-                        window.navigator.permissions.query = (parameters) => (
-                            parameters && parameters.name === 'notifications'
-                                ? Promise.resolve({ state: Notification.permission })
-                                : originalQuery.call(window.navigator.permissions, parameters)
-                        );
-                    }
-                } catch (e) {}
-                
-                const getParameter = WebGLRenderingContext.prototype.getParameter;
-                WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                    if (parameter === 37445) {
-                        return __xhs_webgl_vendor;
-                    }
-                    if (parameter === 37446) {
-                        return __xhs_webgl_renderer;
-                    }
-                    return getParameter.apply(this, arguments);
-                };
-
-                if (__xhs_platform) {
                     try {
-                        Object.defineProperty(navigator, 'platform', { get: () => __xhs_platform });
+                        const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
+                        if (typeof originalQuery === 'function') {
+                            window.navigator.permissions.query = (parameters) => (
+                                parameters && parameters.name === 'notifications'
+                                    ? Promise.resolve({ state: Notification.permission })
+                                    : originalQuery.call(window.navigator.permissions, parameters)
+                            );
+                        }
                     } catch (e) {}
-                }
-
-                try {
-                    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-                    Element.prototype.getBoundingClientRect = function() {
-                        const rect = originalGetBoundingClientRect.apply(this, arguments);
-                        try {
-                            rect.width = Math.round(rect.width);
-                            rect.height = Math.round(rect.height);
-                        } catch (e) {}
-                        return rect;
+                    
+                    const getParameter = WebGLRenderingContext.prototype.getParameter;
+                    WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                        if (parameter === 37445) {
+                            return __xhs_webgl_vendor;
+                        }
+                        if (parameter === 37446) {
+                            return __xhs_webgl_renderer;
+                        }
+                        return getParameter.apply(this, arguments);
                     };
-                } catch (e) {}
 
-                try {
-                    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                } catch (e) {}
+                    if (__xhs_platform) {
+                        try {
+                            Object.defineProperty(navigator, 'platform', { get: () => __xhs_platform });
+                        } catch (e) {}
+                    }
 
-                try {
-                    Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                } catch (e) {}
+                    try {
+                        const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
+                        Element.prototype.getBoundingClientRect = function() {
+                            const rect = originalGetBoundingClientRect.apply(this, arguments);
+                            try {
+                                rect.width = Math.round(rect.width);
+                                rect.height = Math.round(rect.height);
+                            } catch (e) {}
+                            return rect;
+                        };
+                    } catch (e) {}
 
-                try {
-                    Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
-                } catch (e) {}
-                
-                window.chrome = {
-                    runtime: {}
-                };
-            })();
-            """ % (webgl_vendor_js, webgl_renderer_js, platform_js)
-            await self.page.add_init_script(stealth_js)
+                    try {
+                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+                    } catch (e) {}
+
+                    try {
+                        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                    } catch (e) {}
+
+                    try {
+                        Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
+                    } catch (e) {}
+                    
+                    window.chrome = {
+                        runtime: {}
+                    };
+                })();
+                """ % (webgl_vendor_js, webgl_renderer_js, platform_js)
+                await self.page.add_init_script(stealth_js)
+            else:
+                print("使用 persistent profile，默认不注入额外 stealth 指纹覆写")
             
             print("浏览器启动成功！")
             logging.debug("浏览器启动成功！")
@@ -1136,6 +1284,89 @@ class XiaohongshuPoster:
         except Exception:
             return False
 
+    async def _load_saved_login_state_into_current_context(self) -> bool:
+        state_path = str(getattr(self, "storage_state_file", "") or "").strip()
+        state = None
+        if state_path and os.path.exists(state_path) and os.path.getsize(state_path) > 0:
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    state = json.load(f)
+            except Exception:
+                state = None
+
+        if isinstance(state, dict):
+            await self._restore_storage_state_to_context(state)
+        else:
+            try:
+                await self._load_cookies()
+            except Exception:
+                pass
+
+        return isinstance(state, dict)
+
+    async def _maybe_auto_import_system_login_state(self) -> bool:
+        enabled = self._is_truthy(
+            self._get_env_value("XHS_AUTO_IMPORT_SYSTEM_CHROME_STATE", None),
+            default=True,
+        )
+        if not enabled:
+            return False
+
+        storage_dir = self._get_user_storage_dir()
+        chrome_user_data_dir = str(self._get_env_value("XHS_CHROME_USER_DATA_DIR", "") or "").strip()
+        chrome_profile_directory = str(self._get_env_value("XHS_CHROME_PROFILE_DIRECTORY", "") or "").strip()
+
+        def _progress(message: str) -> None:
+            try:
+                print(message)
+            except Exception:
+                pass
+
+        try:
+            result = await asyncio.to_thread(
+                import_login_state_from_system_chrome,
+                target_storage_dir=storage_dir,
+                chrome_user_data_dir=chrome_user_data_dir,
+                preferred_profile_directory=chrome_profile_directory,
+                timeout_s=0,
+                allow_manual_wait=False,
+                allow_when_chrome_running=False,
+                progress_callback=_progress,
+            )
+        except Exception as e:
+            print(f"自动识别系统 Chrome 登录态失败: {e}")
+            return False
+
+        if not result:
+            return False
+
+        try:
+            await self._load_saved_login_state_into_current_context()
+            try:
+                await self.page.goto("https://creator.xiaohongshu.com/new/home", wait_until="domcontentloaded", timeout=30_000)
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
+            await self._warmup_xhs_sso()
+            if await self._is_creator_logged_in():
+                print(
+                    f"已自动识别并加载系统 Chrome 登录态: {result.profile_directory} "
+                    f"({result.imported_cookie_count} cookies)"
+                )
+                try:
+                    await self._save_cookies()
+                except Exception:
+                    pass
+                try:
+                    await self._save_storage_state()
+                except Exception:
+                    pass
+                return True
+        except Exception as e:
+            print(f"加载自动导入的系统 Chrome 登录态失败: {e}")
+
+        return False
+
     async def login(self, phone, country_code="+86"):
         """登录小红书"""
         await self.ensure_browser()  # 确保浏览器已初始化
@@ -1203,8 +1434,8 @@ class XiaohongshuPoster:
         # 先清除所有cookies
         await maybe_clear_cookies(reason="cookie_login")
         
-        # 重新加载cookies
-        await self._load_cookies()
+        # 重新加载 cookies / storage_state
+        await self._load_saved_login_state_into_current_context()
         # 刷新页面并等待加载完成
         await self.page.reload(wait_until="domcontentloaded")
         await asyncio.sleep(1.5)
@@ -1226,6 +1457,16 @@ class XiaohongshuPoster:
         else:
             # 清理无效的cookies
             await maybe_clear_cookies(reason="cookie_login_failed")
+
+        auto_import_ok = await self._maybe_auto_import_system_login_state()
+        if auto_import_ok:
+            return
+
+        if self._is_truthy(self._get_env_value("XHS_HEADLESS", None), default=False):
+            raise RuntimeError(
+                "当前为无头/服务模式，且现有登录态不可用。"
+                "请先在有界面环境完成一次登录并保存 storage_state/cookies，再切回无头模式。"
+            )
             
         # 如果cookies登录失败，则进行手动登录
         await self.page.goto("https://creator.xiaohongshu.com/login", wait_until="domcontentloaded")
@@ -1250,6 +1491,9 @@ class XiaohongshuPoster:
                         continue
         except Exception:
             pass
+
+        if str(country_code or "+86").strip() and str(country_code).strip() != "+86":
+            await self._try_select_country_code(str(country_code).strip())
 
         # 输入手机号（多 selector 兜底）
         phone_selectors = [
@@ -1397,14 +1641,51 @@ class XiaohongshuPoster:
                 except Exception as e:
                     print(f"截图失败({path}): {e}")
 
-            # 首先导航到创作者中心
-            print("导航到创作者中心...")
-            await self.page.goto("https://creator.xiaohongshu.com/new/home", wait_until="domcontentloaded")
-            await asyncio.sleep(3)
+            manual_confirmation_mode = not bool(auto_publish)
+            allow_force_dom_actions = self._allow_force_dom_actions(manual_mode=manual_confirmation_mode)
+
+            async def try_force_click(locator, label: str) -> bool:
+                if not allow_force_dom_actions:
+                    print(f"{label}: 稳态模式下跳过 DOM 强制点击")
+                    return False
+                try:
+                    await locator.dispatch_event("click")
+                    return True
+                except Exception:
+                    try:
+                        await locator.evaluate("el => el.click()")
+                        return True
+                    except Exception:
+                        return False
+
+            async def maybe_dispatch_input_events(locator, label: str) -> bool:
+                if not allow_force_dom_actions:
+                    return False
+                try:
+                    await locator.dispatch_event("input")
+                    await locator.dispatch_event("change")
+                    return True
+                except Exception as e:
+                    print(f"{label}: DOM input/change 强触发失败: {e}")
+                    return False
+
+            current_url = ""
+            try:
+                current_url = str(self.page.url or "")
+            except Exception:
+                current_url = ""
+
+            if current_url and "creator.xiaohongshu.com" in current_url.lower() and not await self._has_blocking_auth_issue(current_url):
+                print(f"复用当前创作者中心页面: {current_url}")
+                await asyncio.sleep(1.0)
+            else:
+                print("导航到创作者中心...")
+                await self.page.goto("https://creator.xiaohongshu.com/new/home", wait_until="domcontentloaded")
+                await asyncio.sleep(3)
             
             # 检查是否需要登录
             current_url = self.page.url
-            if "login" in current_url or self._auth_issue:
+            if await self._has_blocking_auth_issue(current_url):
                 print("需要重新登录...尝试自动恢复登录态")
                 phone = self._get_user_phone()
                 if phone:
@@ -1419,7 +1700,7 @@ class XiaohongshuPoster:
                 await asyncio.sleep(2.0)
 
                 current_url = self.page.url
-                if "login" in current_url or self._auth_issue:
+                if await self._has_blocking_auth_issue(current_url):
                     try:
                         await self._dump_page_debug(tag="auth_required", include_cookies=True)
                     except Exception:
@@ -1430,20 +1711,31 @@ class XiaohongshuPoster:
             await self._warmup_xhs_sso()
             
             print("点击发布笔记按钮...")
-            # 根据实际HTML结构点击发布按钮
             publish_selectors = [
-                ".publish-video .btn",  # 根据日志显示这个选择器工作正常
+                ".publish-video .btn-wrapper",
+                ".publish-video .btn-inner",
+                ".publish-video .btn-text",
+                ".publish-video",
+                "text=发布笔记",
                 "button:has-text('发布笔记')",
-                ".btn:text('发布笔记')",
-                "//div[contains(@class, 'btn')][contains(text(), '发布笔记')]"
+                "//span[contains(@class, 'btn-text')][contains(text(), '发布笔记')]",
+                "//div[contains(@class, 'publish-video')]//*[contains(text(), '发布笔记')]",
             ]
-            
+
             publish_clicked = False
             for selector in publish_selectors:
                 try:
                     print(f"尝试发布按钮选择器: {selector}")
-                    await self.page.wait_for_selector(selector, timeout=5000)
-                    await self.page.click(selector)
+                    loc = self.page.locator(selector).first
+                    if await loc.count() <= 0:
+                        continue
+                    await loc.wait_for(state="visible", timeout=5000)
+                    await loc.scroll_into_view_if_needed()
+                    try:
+                        await loc.click(timeout=5000)
+                    except Exception:
+                        if not await try_force_click(loc, f"发布按钮 {selector}"):
+                            raise
                     print(f"成功点击发布按钮: {selector}")
                     publish_clicked = True
                     break
@@ -1462,19 +1754,49 @@ class XiaohongshuPoster:
             try:
                 # 等待选项卡加载
                 await self.page.wait_for_selector(".creator-tab", timeout=10000)
-                
-                # 使用JavaScript直接获取第二个选项卡并点击
-                await self.page.evaluate("""
-                    () => {
-                        const tabs = document.querySelectorAll('.creator-tab');
-                        if (tabs.length > 1) {
-                            tabs[1].click();
-                            return true;
-                        }
-                        return false;
-                    }
-                """)
-                print("使用JavaScript方法点击第二个选项卡")
+
+                tab_clicked = False
+                tab_selectors = [
+                    ".creator-tab:has-text('图文')",
+                    ".creator-tab:has-text('上传图文')",
+                    "[role='tab']:has-text('图文')",
+                    "button:has-text('图文')",
+                    "text=图文",
+                ]
+                for selector in tab_selectors:
+                    try:
+                        loc = self.page.locator(selector).first
+                        if await loc.count() <= 0:
+                            continue
+                        await loc.click(timeout=2000)
+                        tab_clicked = True
+                        print(f"使用文本选择器切换图文页签: {selector}")
+                        break
+                    except Exception:
+                        continue
+
+                if not tab_clicked:
+                    clicked_by_js = ""
+                    if allow_force_dom_actions:
+                        clicked_by_js = await self.page.evaluate("""
+                            () => {
+                                const tabs = Array.from(document.querySelectorAll('.creator-tab'));
+                                const textTab = tabs.find((tab) => /图文/.test(tab.textContent || ''));
+                                if (textTab) {
+                                    textTab.click();
+                                    return 'text-match';
+                                }
+                                if (tabs.length > 1) {
+                                    tabs[1].click();
+                                    return 'second-tab';
+                                }
+                                return '';
+                            }
+                        """)
+                    if clicked_by_js:
+                        print(f"使用JavaScript方法切换图文页签: {clicked_by_js}")
+                    else:
+                        print("未找到明确的图文页签，将继续尝试后续上传控件定位")
                 
                 await asyncio.sleep(2)
             except Exception as e:
@@ -1495,7 +1817,7 @@ class XiaohongshuPoster:
                     print("等待上传按钮 '.upload-button' 出现...")
                     await self.page.wait_for_selector(".upload-button", timeout=20000) 
                     await asyncio.sleep(1.5) # 短暂稳定延时
-                    if self._auth_issue or ("login" in (self.page.url or "")):
+                    if await self._has_blocking_auth_issue():
                         print(f"检测到登录态异常/跳转登录，无法继续上传: {self._auth_issue_url or self.page.url}")
                         return False
 
@@ -1541,7 +1863,7 @@ class XiaohongshuPoster:
                         deadline = time.time() + (timeout_ms / 1000.0)
                         while time.time() < deadline:
                             # 一旦页面被 401 触发跳转登录，后续上传/预览必然失败，直接提前结束
-                            if self._auth_issue or ("login" in (self.page.url or "")):
+                            if await self._has_blocking_auth_issue():
                                 return False
 
                             try:
@@ -1708,8 +2030,7 @@ class XiaohongshuPoster:
                                     except Exception:
                                         pass
                                     try:
-                                        await nth.dispatch_event("input")
-                                        await nth.dispatch_event("change")
+                                        await maybe_dispatch_input_events(nth, f"上传 input {selector}#{i}")
                                     except Exception:
                                         pass
                                     if await wait_for_upload_ready(timeout_ms=60000):
@@ -1717,7 +2038,7 @@ class XiaohongshuPoster:
                                         return True
                                     else:
                                         print(f" {label}已选择文件但未检测到预览: selector={selector} nth={i}")
-                                        if self._auth_issue or ("login" in (self.page.url or "")):
+                                        if await self._has_blocking_auth_issue():
                                             print(f" {label}检测到登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
                                         texts = await get_upload_feedback_texts()
                                         if texts:
@@ -1780,8 +2101,7 @@ class XiaohongshuPoster:
                             except Exception:
                                 pass
                             try:
-                                await target.dispatch_event("input")
-                                await target.dispatch_event("change")
+                                await maybe_dispatch_input_events(target, f"上传命中 input {label}")
                             except Exception:
                                 pass
                             if await wait_for_upload_ready(timeout_ms=60000):
@@ -1790,7 +2110,7 @@ class XiaohongshuPoster:
                             texts = await get_upload_feedback_texts()
                             if texts:
                                 print(f" {label}页面提示: {texts}")
-                            if self._auth_issue or ("login" in (self.page.url or "")):
+                            if await self._has_blocking_auth_issue():
                                 print(f" {label}检测到登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
                             return False
                         except Exception as e:
@@ -1822,7 +2142,7 @@ class XiaohongshuPoster:
                                 print(f" {label}成功: 点击 {click_selector} 并设置文件")
                                 return True
                             print(f" {label}已设置文件但未检测到预览: 点击 {click_selector}")
-                            if self._auth_issue or ("login" in (self.page.url or "")):
+                            if await self._has_blocking_auth_issue():
                                 print(f" {label}检测到登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
                             return False
                         except Exception as e:
@@ -1834,7 +2154,7 @@ class XiaohongshuPoster:
                         # 有些页面逻辑会在点击按钮时初始化状态（如裁剪比例等），否则 set_input_files 后可能不触发上传。
                         try:
                             btn = upload_scope.locator(".upload-button", has_text="上传图片").first
-                            if await btn.count() > 0:
+                            if await btn.count() > 0 and allow_force_dom_actions:
                                 await btn.dispatch_event("click")
                                 await asyncio.sleep(0.1)
                         except Exception:
@@ -1844,7 +2164,10 @@ class XiaohongshuPoster:
                     if not upload_success:
                         print("尝试方法0: 直接对上传 input 执行 set_input_files（避免按钮被 input 覆盖导致 click 失败）")
                         await prime_upload_mode()
-                        upload_success = await try_set_input_files_by_hit_test(" 方法0-hit")
+                        if allow_force_dom_actions:
+                            upload_success = await try_set_input_files_by_hit_test(" 方法0-hit")
+                        else:
+                            print("稳态模式下跳过命中测试上传 fallback")
                         try:
                             await upload_scope.locator("input[type='file']").first.wait_for(state="attached", timeout=8000)
                         except Exception:
@@ -1933,7 +2256,7 @@ class XiaohongshuPoster:
                                 print(" 方法1成功: 直接通过 set_input_files 操作 '.upload-input'")
                             else:
                                 print(" 方法1已设置文件但未检测到预览")
-                                if self._auth_issue or ("login" in (self.page.url or "")):
+                                if await self._has_blocking_auth_issue():
                                     print(f" 方法1检测到登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
                         except Exception as e:
                             print(f" 方法1 (set_input_files on '.upload-input') 失败: {e}")
@@ -1947,6 +2270,8 @@ class XiaohongshuPoster:
                             await self.page.wait_for_selector(input_selector, state="attached", timeout=5000)
                             print(f"找到 '{input_selector}'. 尝试通过JS点击...")
                             async with self.page.expect_file_chooser(timeout=10000) as fc_info:
+                                if not allow_force_dom_actions:
+                                    raise RuntimeError("稳态模式下禁用 JavaScript 强制点击上传 input")
                                 await self.page.evaluate(f"document.querySelector('{input_selector}').click();")
                                 print(f"已通过JS点击 '{input_selector}'. 等待文件选择器...")
                             file_chooser = await fc_info.value
@@ -2175,11 +2500,8 @@ class XiaohongshuPoster:
                         try:
                             await btn.click(timeout=8000)
                         except Exception:
-                            # 有些情况下按钮被遮挡/hover层拦截，尝试 JS click / dispatch_event 兜底
-                            try:
-                                await btn.dispatch_event("click")
-                            except Exception:
-                                await btn.evaluate("el => el.click()")
+                            if not await try_force_click(btn, f"最终发布按钮 {selector}"):
+                                raise
                         print(f"已点击最终发布按钮: {selector}")
                         publish_success = True
                         break
@@ -2219,10 +2541,8 @@ class XiaohongshuPoster:
                         try:
                             await btn.click(timeout=5000)
                         except Exception:
-                            try:
-                                await btn.dispatch_event("click")
-                            except Exception:
-                                await btn.evaluate("el => el.click()")
+                            if not await try_force_click(btn, f"确认弹窗按钮 {selector}"):
+                                raise
                         print(f"检测到发布确认弹窗，已点击: {selector}")
                         break
                     except Exception:
@@ -2240,7 +2560,7 @@ class XiaohongshuPoster:
                 while time.time() < deadline:
                     # 若 401/跳转登录，直接判定失败，避免“误以为发布成功”
                     try:
-                        if self._auth_issue or ("login" in (self.page.url or "")):
+                        if await self._has_blocking_auth_issue():
                             raise Exception(f"发布过程中登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
                     except Exception:
                         raise
@@ -2271,13 +2591,12 @@ class XiaohongshuPoster:
                 except Exception:
                     pass
 
-                # 若无法确认结果，仍返回 True，但保留诊断信息供排查（避免无人值守任务“假成功”没有线索）
+                # 若无法确认结果，按失败处理并保留诊断信息，避免无人值守任务“假成功”
                 try:
                     await self._dump_page_debug(tag="publish_not_verified", include_cookies=False)
                 except Exception:
                     pass
-                print("未能在超时时间内确认发布结果（可能已发布，但页面未给出明显提示）。")
-                return True
+                raise RuntimeError("未能在超时时间内确认发布结果，请人工核验发布状态")
 
             print("文章已准备好，请在浏览器中检查并手动点击发布。")
             return True
@@ -2299,6 +2618,13 @@ class XiaohongshuPoster:
             force: 是否强制关闭浏览器，默认为False
         """
         if not force:
+            return
+
+        if not getattr(self, "_owns_browser_session", True):
+            self.playwright = None
+            self.browser = None
+            self.context = None
+            self.page = None
             return
 
         # 逐步 best-effort 关闭，避免其中一步抛错导致后续资源不释放（尤其是 persistent context）。
@@ -2345,8 +2671,58 @@ class XiaohongshuPoster:
 
     async def ensure_browser(self):
         """确保浏览器已初始化"""
+        if self.page and self.context:
+            return
         if not self.playwright:
             await self.initialize()
+
+    async def _try_select_country_code(self, country_code: str) -> None:
+        """Best-effort 切换登录页区号。"""
+        if not self.page:
+            return
+
+        code = str(country_code or "").strip()
+        if not code or code == "+86":
+            return
+
+        trigger_selectors = [
+            "div[class*='country']",
+            "div[class*='area']",
+            "span:has-text('+86')",
+            "button:has-text('+86')",
+            "text=+86",
+        ]
+        option_selectors = [
+            f"text={code}",
+            f"text=国家/地区{code}",
+            f"text=地区 {code}",
+            code,
+        ]
+
+        try:
+            for selector in trigger_selectors:
+                try:
+                    loc = self.page.locator(selector).first
+                    if await loc.count() <= 0:
+                        continue
+                    await loc.click(timeout=1500)
+                    await asyncio.sleep(0.3)
+                    break
+                except Exception:
+                    continue
+
+            for selector in option_selectors:
+                try:
+                    loc = self.page.locator(selector).first
+                    if await loc.count() <= 0:
+                        continue
+                    await loc.click(timeout=1500)
+                    await asyncio.sleep(0.4)
+                    return
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

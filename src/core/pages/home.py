@@ -85,6 +85,26 @@ class HomePage(QWidget):
 
         # 手机号输入
         login_controls.addWidget(QLabel("📱 手机号:"))
+        self.country_code_combo = QComboBox()
+        self.country_code_combo.setFixedWidth(118)
+        for code, label in [
+            ("+86", "+86 中国大陆"),
+            ("+852", "+852 中国香港"),
+            ("+853", "+853 中国澳门"),
+            ("+886", "+886 中国台湾"),
+            ("+1", "+1 US/CA"),
+            ("+44", "+44 UK"),
+            ("+81", "+81 日本"),
+            ("+82", "+82 韩国"),
+            ("+65", "+65 新加坡"),
+        ]:
+            self.country_code_combo.addItem(label, code)
+        saved_country_code = str(self.parent.config.get_country_code_config() or "+86").strip() or "+86"
+        country_index = self.country_code_combo.findData(saved_country_code)
+        self.country_code_combo.setCurrentIndex(country_index if country_index >= 0 else 0)
+        self.country_code_combo.currentIndexChanged.connect(self.update_country_code_config)
+        login_controls.addWidget(self.country_code_combo)
+
         self.phone_input = QLineEdit()
         self.phone_input.setFixedWidth(180)
         self.phone_input.setText(self.parent.config.get_phone_config())
@@ -121,6 +141,7 @@ class HomePage(QWidget):
         self.login_status_label.setStyleSheet(
             "color: #7f8c8d; font-size: 10.5pt; padding-left: 2px;"
         )
+        self.login_status_label.setText("支持国家区号选择；如遇扫码/滑块风控，可点取消后在浏览器中手动完成登录。")
         login_layout.addWidget(self.login_status_label)
         parent_layout.addWidget(login_frame)
 
@@ -1012,7 +1033,8 @@ class HomePage(QWidget):
             # 添加登录任务到浏览器线程
             self.parent.browser_thread.action_queue.append({
                 'type': 'login',
-                'phone': phone
+                'phone': phone,
+                'country_code': self.get_country_code(),
             })
 
         except Exception as e:
@@ -1465,6 +1487,21 @@ class HomePage(QWidget):
             self.parent.config.update_phone_config(new_phone)
         except Exception as e:
             self.parent.logger.error(f"更新手机号配置失败: {str(e)}")
+
+    def update_country_code_config(self):
+        """更新国家区号配置"""
+        try:
+            self.parent.config.update_country_code_config(self.get_country_code())
+        except Exception as e:
+            self.parent.logger.error(f"更新国家区号配置失败: {str(e)}")
+
+    def get_country_code(self) -> str:
+        try:
+            if hasattr(self, 'country_code_combo') and self.country_code_combo is not None:
+                return str(self.country_code_combo.currentData() or "+86").strip() or "+86"
+        except Exception:
+            pass
+        return "+86"
 
     def apply_generated_cover(self, cover_path):
         """应用生成的封面图片"""

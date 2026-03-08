@@ -15,7 +15,6 @@ import aiofiles
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.browser_manager import BrowserManager
 from core.write_xiaohongshu import XiaohongshuPoster
 from core.auth_manager import AuthManager
 from core.content_manager import ContentManager, ContentItem
@@ -29,6 +28,11 @@ app = FastAPI(
     version="2.0.0"
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATE_DIR = BASE_DIR / "templates"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
@@ -39,11 +43,67 @@ app.add_middleware(
 )
 
 # 全局管理器实例
-browser_manager: Optional[BrowserManager] = None
+browser_manager: Optional[Any] = None
 auth_manager: Optional[AuthManager] = None
 content_manager: Optional[ContentManager] = None
 session_manager: Optional[SessionManager] = None
 publisher: Optional[XiaohongshuPoster] = None
+runtime_lock = asyncio.Lock()
+
+
+def ensure_basic_managers() -> None:
+    global auth_manager, content_manager, session_manager
+
+    if content_manager is None:
+        content_manager = ContentManager()
+    if session_manager is None:
+        session_manager = SessionManager()
+    if auth_manager is None:
+        auth_manager = AuthManager()
+
+
+async def ensure_browser_runtime() -> None:
+    global browser_manager, auth_manager, publisher
+
+    ensure_basic_managers()
+
+    if publisher is not None and getattr(publisher, "page", None) is not None:
+        browser_manager = publisher
+        return
+
+    async with runtime_lock:
+        if publisher is not None and getattr(publisher, "page", None) is not None:
+            browser_manager = publisher
+            return
+
+        logger.info("按需初始化浏览器运行时（统一使用 XiaohongshuPoster 持久化会话）...")
+        publisher = XiaohongshuPoster()
+        await publisher.initialize()
+        browser_manager = publisher
+
+        await auth_manager.initialize(browser_manager, poster=publisher)
+
+
+async def cleanup_browser_runtime() -> None:
+    global browser_manager, auth_manager, publisher
+
+    legacy_publisher = publisher
+    legacy_browser_manager = browser_manager
+
+    if auth_manager:
+        await auth_manager.cleanup()
+
+    if legacy_publisher:
+        await legacy_publisher.cleanup()
+
+    publisher = None
+    browser_manager = None
+
+    if legacy_browser_manager and legacy_browser_manager is not legacy_publisher and hasattr(legacy_browser_manager, "close"):
+        try:
+            await legacy_browser_manager.close()
+        except Exception:
+            pass
 
 # Pydantic模型
 class LoginRequest(BaseModel):
@@ -57,7 +117,12 @@ class ContentCreateRequest(BaseModel):
     images: Optional[List[str]] = []
 
 class PublishRequest(BaseModel):
-    content_id: str
+    content_id: Optional[str] = None
+    session_id: Optional[str] = None
+    title: Optional[str] = None
+    content: Optional[str] = None
+    image_files: Optional[List[Any]] = []
+    auto_publish: bool = False
 
 class SessionResponse(BaseModel):
     session_id: str
@@ -71,12 +136,12 @@ class LoginStatusResponse(BaseModel):
     error: Optional[str] = None
 
 # 静态文件服务
-app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """返回主页面"""
-    html_file = Path("src/web/templates/index.html")
+    html_file = TEMPLATE_DIR / "index.html"
     if html_file.exists():
         async with aiofiles.open(html_file, encoding='utf-8') as f:
             content = await f.read()
@@ -106,10 +171,48 @@ async def read_root():
         </html>
         """)
 
+
+@app.get("/healthz")
+async def healthz():
+    return {"success": True, "status": "ok"}
+
+
+@app.get("/readyz")
+async def readyz():
+    return {
+        "success": True,
+        "status": "ready",
+        "data": {
+            "browser_runtime_initialized": bool(browser_manager and getattr(browser_manager, "page", None)),
+            "content_manager_initialized": bool(content_manager),
+            "session_manager_initialized": bool(session_manager),
+        },
+    }
+
+
+@app.get("/api/auth/status")
+async def auth_status():
+    logged_in = False
+    user_info = None
+    ensure_basic_managers()
+    if auth_manager and browser_manager and getattr(browser_manager, "page", None):
+        logged_in = await auth_manager.is_logged_in()
+        if logged_in:
+            user_info = await auth_manager.get_user_info()
+    return {
+        "success": True,
+        "data": {
+            "logged_in": logged_in,
+            "user_info": user_info,
+        },
+    }
+
 @app.get("/api/status")
 async def get_status():
     """获取系统状态"""
     try:
+        ensure_basic_managers()
+
         # 获取各种统计信息
         content_stats = content_manager.get_content_stats() if content_manager else {}
         session_stats = session_manager.get_session_stats() if session_manager else {}
@@ -144,8 +247,8 @@ async def get_status():
 async def login(request: LoginRequest):
     """登录"""
     try:
-        if not auth_manager:
-            raise HTTPException(status_code=500, detail="认证管理器未初始化")
+        ensure_basic_managers()
+        await ensure_browser_runtime()
         
         # 执行登录
         success = await auth_manager.login(request.phone, request.country_code)
@@ -178,8 +281,8 @@ async def login(request: LoginRequest):
 async def logout():
     """登出"""
     try:
-        if not auth_manager:
-            raise HTTPException(status_code=500, detail="认证管理器未初始化")
+        ensure_basic_managers()
+        await ensure_browser_runtime()
         
         success = await auth_manager.logout()
         
@@ -204,8 +307,7 @@ async def logout():
 async def upload_files(files: List[UploadFile] = File(...)):
     """上传文件"""
     try:
-        if not content_manager:
-            raise HTTPException(status_code=500, detail="内容管理器未初始化")
+        ensure_basic_managers()
         
         uploaded_files = []
         
@@ -229,7 +331,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
         return {
             'success': True,
             'message': f'成功上传 {len(uploaded_files)} 个文件',
-            'data': uploaded_files
+            'data': uploaded_files,
+            'files': uploaded_files,
         }
         
     except Exception as e:
@@ -245,8 +348,7 @@ def allowed_file(filename):
 async def create_content(request: ContentCreateRequest):
     """创建内容"""
     try:
-        if not content_manager:
-            raise HTTPException(status_code=500, detail="内容管理器未初始化")
+        ensure_basic_managers()
         
         if not request.title.strip():
             raise HTTPException(status_code=400, detail="请输入标题")
@@ -278,8 +380,7 @@ async def create_content(request: ContentCreateRequest):
 async def get_content(content_id: str):
     """获取内容"""
     try:
-        if not content_manager:
-            raise HTTPException(status_code=500, detail="内容管理器未初始化")
+        ensure_basic_managers()
         
         content_item = content_manager.get_content(content_id)
         
@@ -299,8 +400,7 @@ async def get_content(content_id: str):
 async def list_contents(status: Optional[str] = None, limit: Optional[int] = None):
     """列出内容"""
     try:
-        if not content_manager:
-            raise HTTPException(status_code=500, detail="内容管理器未初始化")
+        ensure_basic_managers()
         
         contents = content_manager.list_contents(status, limit)
         
@@ -317,54 +417,77 @@ async def list_contents(status: Optional[str] = None, limit: Optional[int] = Non
 async def publish_content(request: PublishRequest, background_tasks: BackgroundTasks):
     """发布内容"""
     try:
-        if not content_manager or not auth_manager or not publisher:
-            raise HTTPException(status_code=500, detail="管理器未初始化")
-        
-        content_item = content_manager.get_content(request.content_id)
-        if not content_item:
-            raise HTTPException(status_code=404, detail="内容不存在")
-        
-        # 验证内容
+        ensure_basic_managers()
+        await ensure_browser_runtime()
+
+        content_id = str(request.content_id or "").strip()
+        if content_id:
+            content_item = content_manager.get_content(content_id)
+            if not content_item:
+                raise HTTPException(status_code=404, detail="内容不存在")
+        else:
+            title = str(request.title or "").strip()
+            content = str(request.content or "").strip()
+            if not title:
+                raise HTTPException(status_code=400, detail="请输入标题")
+            if not content:
+                raise HTTPException(status_code=400, detail="请输入内容")
+
+            content_id = content_manager.create_content(title, content, [])
+            for image in (request.image_files or []):
+                image_path = ""
+                if isinstance(image, dict):
+                    image_path = str(image.get("path") or image.get("file_path") or "").strip()
+                elif isinstance(image, str):
+                    image_path = image.strip()
+                if image_path:
+                    content_manager.add_image_to_content(content_id, image_path)
+
+            content_item = content_manager.get_content(content_id)
+            if not content_item:
+                raise HTTPException(status_code=500, detail="创建发布内容失败")
+
         is_valid, errors = content_manager.validate_content(content_item)
         if not is_valid:
             raise HTTPException(status_code=400, detail=f"内容验证失败: {', '.join(errors)}")
-        
-        # 检查登录状态
+
         is_logged_in = await auth_manager.is_logged_in()
         if not is_logged_in:
             raise HTTPException(status_code=401, detail="请先登录")
-        
-        # 在后台执行发布任务
+
         async def publish_task():
             try:
-                # 更新内容状态为发布中
-                content_manager.update_content_status(request.content_id, "publishing")
-                
-                # 执行发布
+                content_manager.update_content_status(content_id, "publishing")
                 success = await publisher.post_article(
                     title=content_item.title,
                     content=content_item.content,
-                    images=content_item.images
+                    images=content_item.images,
+                    auto_publish=bool(request.auto_publish),
                 )
-                
+
                 if success:
-                    content_manager.update_content_status(request.content_id, "published")
-                    logger.info(f"内容发布成功: {request.content_id}")
+                    final_status = "published" if request.auto_publish else "draft"
+                    content_manager.update_content_status(content_id, final_status)
+                    logger.info(f"内容发布任务成功: {content_id}, auto_publish={request.auto_publish}")
                 else:
-                    content_manager.update_content_status(request.content_id, "failed", "发布失败")
-                    logger.error(f"内容发布失败: {request.content_id}")
-                    
+                    content_manager.update_content_status(content_id, "failed", "发布失败")
+                    logger.error(f"内容发布失败: {content_id}")
+
             except Exception as e:
-                content_manager.update_content_status(request.content_id, "failed", str(e))
-                logger.error(f"内容发布异常: {request.content_id}, {str(e)}", exc_info=True)
-        
+                content_manager.update_content_status(content_id, "failed", str(e))
+                logger.error(f"内容发布异常: {content_id}, {str(e)}", exc_info=True)
+
         background_tasks.add_task(publish_task)
-        
+
         return {
             'success': True,
-            'message': '发布任务已启动，请稍后查看发布状态'
+            'message': '自动发布任务已启动，请稍后查看状态' if request.auto_publish else '内容已开始自动填写，请在浏览器中手动确认发布',
+            'content_id': content_id,
+            'auto_publish': bool(request.auto_publish),
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"发布内容失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"发布失败: {str(e)}")
@@ -373,8 +496,7 @@ async def publish_content(request: PublishRequest, background_tasks: BackgroundT
 async def list_sessions(status: Optional[str] = None, limit: Optional[int] = None):
     """列出会话"""
     try:
-        if not session_manager:
-            raise HTTPException(status_code=500, detail="会话管理器未初始化")
+        ensure_basic_managers()
         
         sessions = session_manager.list_sessions(status, limit)
         
@@ -391,8 +513,7 @@ async def list_sessions(status: Optional[str] = None, limit: Optional[int] = Non
 async def delete_session(session_id: str):
     """删除会话"""
     try:
-        if not session_manager:
-            raise HTTPException(status_code=500, detail="会话管理器未初始化")
+        ensure_basic_managers()
         
         success = session_manager.delete_session(session_id)
         
@@ -411,29 +532,17 @@ async def delete_session(session_id: str):
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化管理器"""
-    global browser_manager, auth_manager, content_manager, session_manager, publisher
-    
     try:
-        logger.info("正在初始化管理器...")
-        
-        # 初始化管理器
-        browser_manager = BrowserManager()
-        auth_manager = AuthManager()
-        content_manager = ContentManager()
-        session_manager = SessionManager()
-        
-        # 初始化浏览器
-        await browser_manager.initialize()
-        
-        # 初始化认证管理器
-        await auth_manager.initialize(browser_manager)
-        
-        # 初始化发布器
-        publisher = XiaohongshuPoster()
-        await publisher.initialize()
-        
-        logger.info("所有管理器初始化完成")
-        
+        logger.info("正在初始化基础管理器...")
+        ensure_basic_managers()
+
+        eager_browser = (os.getenv("XHS_WEB_EAGER_BROWSER", "").strip().lower() in {"1", "true", "yes", "on"})
+        if eager_browser:
+            await ensure_browser_runtime()
+            logger.info("浏览器运行时已在启动阶段预热")
+        else:
+            logger.info("浏览器运行时采用懒加载，将在首次登录/发布时初始化")
+
     except Exception as e:
         logger.error(f"管理器初始化失败: {str(e)}", exc_info=True)
         raise
@@ -441,19 +550,9 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时清理资源"""
-    global browser_manager, auth_manager, content_manager, session_manager, publisher
-    
     try:
         logger.info("正在清理资源...")
-        
-        if publisher:
-            await publisher.cleanup()
-        
-        if auth_manager:
-            await auth_manager.cleanup()
-        
-        if browser_manager:
-            await browser_manager.cleanup()
+        await cleanup_browser_runtime()
         
         logger.info("资源清理完成")
         
@@ -463,7 +562,7 @@ async def shutdown_event():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "app:app",
+        app,
         host=config.web.host,
         port=config.web.port,
         reload=config.web.debug

@@ -3,9 +3,8 @@ import json
 import time
 from typing import List, Dict, Optional
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from sqlalchemy.orm import sessionmaker
 from src.core.models.cover_template import CoverTemplate, Base
-from src.core.database_manager import database_manager
+from src.config.database import db_manager
 
 class CoverTemplateService:
     """封面模板服务类"""
@@ -30,7 +29,7 @@ class CoverTemplateService:
         """初始化数据库表"""
         try:
             # 使用现有的数据库引擎
-            engine = database_manager.engine
+            engine = db_manager.engine
             if engine:
                 # 创建模板表
                 Base.metadata.create_all(engine, tables=[CoverTemplate.__table__])
@@ -44,7 +43,9 @@ class CoverTemplateService:
             # 检查是否已有模板
             if self.get_templates_count() > 0:
                 return
-            
+
+            created_count = 0
+
             # 加载新的模板库
             template_file = os.path.join("templates", "cover_templates_library.json")
             if os.path.exists(template_file):
@@ -52,15 +53,15 @@ class CoverTemplateService:
                     data = json.load(f)
                     
                 # 将新模板格式转换为旧格式
-                for template in data["templates"]:
+                for template in data.get("templates", []):
                     template_config = {
                         'background_color': template.get('bg_color', '#FFFFFF'),
                         'text_config': template.get('text_config', {}),
                         'elements': template.get('elements', {}),
                         'size': template.get('size', [1080, 1080])
                     }
-                    
-                    self.create_template(
+
+                    template_id = self.create_template(
                         name=template['name'],
                         category=template['category'],
                         style_type='new_template',
@@ -68,8 +69,15 @@ class CoverTemplateService:
                         config=template_config,
                         is_default=True
                     )
-            
-            print("✅ 新模板库初始化完成")
+                    if template_id:
+                        created_count += 1
+
+            if created_count <= 0:
+                print("ℹ️ 未找到可用的新模板库，回退到内置模板")
+                self._init_legacy_templates()
+                return
+
+            print(f"✅ 新模板库初始化完成（{created_count} 个模板）")
             
         except Exception as e:
             print(f"❌ 新模板库初始化失败: {str(e)}")
@@ -173,7 +181,7 @@ class CoverTemplateService:
                        is_default: bool = False) -> Optional[int]:
         """创建新模板"""
         try:
-            session = database_manager.get_session_direct()
+            session = db_manager.get_session_direct()
             template = CoverTemplate(
                 name=name,
                 category=category,
@@ -205,7 +213,7 @@ class CoverTemplateService:
     def get_templates(self, category: str = None) -> List[Dict]:
         """获取模板列表"""
         try:
-            session = database_manager.get_session_direct()
+            session = db_manager.get_session_direct()
             query = session.query(CoverTemplate).filter_by(is_active=True)
             if category:
                 query = query.filter_by(category=category)
@@ -224,9 +232,7 @@ class CoverTemplateService:
     def get_template(self, template_id: int) -> Optional[Dict]:
         """获取单个模板"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return None
+            session = db_manager.get_session_direct()
             
             template = session.query(CoverTemplate).filter_by(
                 id=template_id, is_active=True).first()
@@ -242,9 +248,7 @@ class CoverTemplateService:
     def get_categories(self) -> List[str]:
         """获取所有模板分类"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return []
+            session = db_manager.get_session_direct()
             
             categories = session.query(CoverTemplate.category).filter_by(
                 is_active=True).distinct().all()
@@ -260,9 +264,7 @@ class CoverTemplateService:
     def get_templates_count(self) -> int:
         """获取模板总数"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return 0
+            session = db_manager.get_session_direct()
             
             count = session.query(CoverTemplate).filter_by(is_active=True).count()
             session.close()
@@ -275,9 +277,7 @@ class CoverTemplateService:
     def delete_template(self, template_id: int) -> bool:
         """删除模板（软删除）"""
         try:
-            session = database_manager.get_session()
-            if not session:
-                return False
+            session = db_manager.get_session_direct()
             
             template = session.query(CoverTemplate).filter_by(id=template_id).first()
             if template:
@@ -320,7 +320,7 @@ class CoverTemplateService:
             
             # 更新数据库中的缩略图路径
             try:
-                session = database_manager.get_session_direct()
+                session = db_manager.get_session_direct()
                 template = session.query(CoverTemplate).filter_by(id=template_id).first()
                 if template:
                     template.thumbnail_path = thumbnail_path

@@ -5,8 +5,7 @@
 
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, Float
-from sqlalchemy.orm import relationship
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship, declarative_base
 
 # 创建基类（这里直接创建，避免循环导入）
 Base = declarative_base()

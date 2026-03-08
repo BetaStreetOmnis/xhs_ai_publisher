@@ -46,6 +46,7 @@ class BrowserThread(QThread):
                 try:
                     if action['type'] == 'login':
                         phone = (action.get('phone') or "").strip()
+                        country_code = str(action.get('country_code') or "+86").strip() or "+86"
                         if not phone:
                             raise ValueError("手机号不能为空")
 
@@ -125,7 +126,7 @@ class BrowserThread(QThread):
                             browser_environment=browser_env,
                         )
                         await self.poster.initialize()
-                        await self.poster.login(phone)
+                        await self.poster.login(phone, country_code=country_code)
 
                         if user_service and current_user:
                             user_service.update_login_status(current_user.id, True)

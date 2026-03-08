@@ -6,6 +6,7 @@ from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from typing import Optional, Dict, Any
 
 from .logger import logger
+from .config import config
 
 
 class BrowserManager:
@@ -62,7 +63,7 @@ class BrowserManager:
     def _get_launch_args(self) -> Dict[str, Any]:
         """获取浏览器启动参数"""
         return {
-            'headless': False,
+            'headless': bool(config.browser.headless),
             'args': [
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
@@ -184,6 +185,9 @@ class BrowserManager:
             self.context = None
             self.page = None
             self._initialized = False
+
+    async def cleanup(self) -> None:
+        await self.close()
     
     async def ensure_initialized(self) -> None:
         """确保浏览器已初始化"""

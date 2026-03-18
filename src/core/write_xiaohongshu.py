@@ -2331,6 +2331,11 @@ class XiaohongshuPoster:
             # 输入标题
             print("输入标题...")
             try:
+                if title and len(title) > 20:
+                    original_title = title
+                    title = title[:20]
+                    print(f"⚠️ 标题超 20 字，已自动截断: '{original_title}' -> '{title}'")
+
                 # 使用具体的标题选择器
                 title_selectors = [
                     "input.d-text[placeholder='填写标题会有更多赞哦～']",

@@ -96,6 +96,18 @@
 
 ---
 
+## Want to use Xiaohongshu AI Publisher from your phone?
+
+If you'd like to review generated drafts, request edits, or approve a post from your phone before your computer publishes it, I'm also building a mobile app: [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md).
+
+The Android app currently lets you view and reply to Codex and Claude Code sessions on your computer. Its butler can check progress, find tasks waiting for your reply, and follow up within limits you set.
+
+I'd like to connect Office Town with Xiaohongshu AI Publisher so you can continue those content tasks from your phone. This integration is not available yet: reviewing Xiaohongshu drafts and approving publication directly in Office Town are still planned.
+
+[Read the English README](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) · [Watch the English app demo](https://otterview-labs.github.io/agentBridge/en/?from=xhs-readme-en#demo) · [Download the English video](https://github.com/otterview-labs/agentBridge/releases/download/android-v0.5.53/office-town-mobile-en-landscape.mp4)
+
+---
+
 ## 📁 Project Architecture
 
 ```
@@ -502,3 +514,4 @@ This project is licensed under the **Apache 2.0** License - see the [LICENSE](LI
 **⭐ If this project helps you, please give us a star!**
 
 </div>
+

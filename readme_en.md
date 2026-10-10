@@ -96,15 +96,13 @@
 
 ---
 
-## Want to use Xiaohongshu AI Publisher from your phone?
+## Use Xiaohongshu AI Publisher from your phone with Codex
 
-If you'd like to review generated drafts, request edits, or approve a post from your phone before your computer publishes it, I'm also building a mobile app: [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md).
+Run this tool and Codex on your Mac, then use [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) to continue the same Codex session from your phone. Ask it to write and save a draft, request edits, then explicitly approve publication. Operations run on the Mac.
 
-The Android app currently lets you view and reply to Codex and Claude Code sessions on your computer. Its butler can check progress, find tasks waiting for your reply, and follow up within limits you set.
+This setup uses existing session replies and local APIs. Office Town does not need a direct Xiaohongshu connection. Ordinary butler chat currently queries tasks; Codex performs the operations. The complete workflow still needs physical-device verification, and phone chat has no dedicated draft or image preview screen yet.
 
-I'd like to connect Office Town with Xiaohongshu AI Publisher so you can continue those content tasks from your phone. This integration is not available yet: reviewing Xiaohongshu drafts and approving publication directly in Office Town are still planned.
-
-[Read the English README](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) · [Watch the English app demo](https://otterview-labs.github.io/agentBridge/en/?from=xhs-readme-en#demo) · [Download the English video](https://github.com/otterview-labs/agentBridge/releases/download/android-v0.5.53/office-town-mobile-en-landscape.mp4)
+[Setup and instructions for Codex](docs/codex-mobile.en.md) · [Read the English README](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) · [Watch the English app demo](https://otterview-labs.github.io/agentBridge/en/?from=xhs-readme-en#demo) · [Download the English video](https://github.com/otterview-labs/agentBridge/releases/download/android-v0.5.53/office-town-mobile-en-landscape.mp4)
 
 ---
 

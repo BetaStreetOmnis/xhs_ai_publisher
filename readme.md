@@ -91,15 +91,13 @@
 
 ---
 
-## 想在手机上用这套小红书工具
+## 在手机上让 Codex 操作小红书工具
 
-如果你有在手机上操作这套工具的需求，比如看生成好的草稿、补充修改要求，或者确认后再让电脑发布，我也在做一个手机端项目：[办公小镇（agentBridge）](https://github.com/otterview-labs/agentBridge)。
+Mac 上运行这套工具和 Codex，手机用[办公小镇（agentBridge）](https://github.com/otterview-labs/agentBridge)接着回复同一个 Codex 会话。让它写稿、保存草稿，改好后再明确要求发布，操作仍在 Mac 上执行。
 
-它目前能在安卓手机上查看、回复电脑里的 Codex 和 Claude Code 会话。管家可以查任务进展、找出等你回复的事情，也能按你设定的范围帮忙跟进。
+这条路径使用已有的会话回复和本机接口。办公小镇无需直接接入小红书服务；普通管家聊天目前只查询任务，具体操作交给 Codex。完整流程还需要实机验证，手机聊天暂时也没有专门的草稿和图片预览页面。
 
-接下来想把办公小镇和小红书发布助手接起来，让这些内容任务也能在手机上继续处理。目前两个项目还没有直接接通，查看小红书草稿、确认发布这些操作，还不能直接在办公小镇里完成。
-
-[了解办公小镇](https://github.com/otterview-labs/agentBridge) · [看目前的 App 操作视频](https://otterview-labs.github.io/agentBridge/?from=xhs-readme#demo)
+[配置方法与 Codex 操作说明](docs/codex-mobile.zh.md) · [了解办公小镇](https://github.com/otterview-labs/agentBridge) · [看 App 操作视频](https://otterview-labs.github.io/agentBridge/?from=xhs-readme#demo)
 
 ---
 

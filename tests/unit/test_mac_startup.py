@@ -1,10 +1,33 @@
 import importlib
 import logging
+import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
 from types import ModuleType, SimpleNamespace
 import pytest
+
+
+def test_release_starts_without_accessing_a_desktop_directory(tmp_path):
+    env = {**os.environ, 'XHS_DATA_DIR': str(tmp_path / 'data'), 'QT_QPA_PLATFORM': 'offscreen'}
+    script = '''
+import os, runpy, sys
+expanduser = os.path.expanduser
+def reject_desktop(path):
+    if 'Desktop' in os.fspath(path):
+        raise RuntimeError('Startup must not require a Desktop directory')
+    return expanduser(path)
+os.path.expanduser = reject_desktop
+sys.argv = ['main.py', '--smoke-test']
+runpy.run_path('main.py', run_name='__main__')
+'''
+    result = subprocess.run([sys.executable, '-c', script], env=env,
+                            cwd=Path(__file__).resolve().parents[2],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    assert '"status": "ok"' in result.stdout
+    assert (tmp_path / 'data/logs/xhsai_error.log').is_file()
 
 
 @pytest.fixture(scope='session')

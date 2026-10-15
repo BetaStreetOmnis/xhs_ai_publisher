@@ -3,6 +3,7 @@ import os
 import sys
 
 from colorama import Fore, Style, just_fix_windows_console
+from src.core.services.runtime_paths import get_logs_dir
 
 
 class _ColoredFormatter(logging.Formatter):
@@ -48,8 +49,7 @@ class Logger:
                 enable_color = False
 
         # 设置日志文件路径
-        home_dir = os.path.expanduser('~')
-        app_log_dir = os.path.join(home_dir, '.xhs_system', 'logs')
+        app_log_dir = str(get_logs_dir())
         if not os.path.exists(app_log_dir):
             os.makedirs(app_log_dir)
 

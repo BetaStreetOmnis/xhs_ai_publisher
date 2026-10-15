@@ -2,7 +2,7 @@
 
 <h1>🌟 小红书AI发布助手</h1>
 
-![Python Version](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white) ![License](https://img.shields.io/badge/License-Apache%202.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white) ![Version](https://img.shields.io/badge/Version-2.0.0--rc.1-FF6B35?style=for-the-badge&logo=rocket&logoColor=white)
+![Python Version](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white) ![License](https://img.shields.io/badge/License-Apache%202.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white) ![Version](https://img.shields.io/badge/Version-2.0.0--rc.2-FF6B35?style=for-the-badge&logo=rocket&logoColor=white)
 
 <br/>
 
@@ -22,11 +22,11 @@
 
 ---
 
-## v2.0.0-rc.1 改版预发布 · 2026-10-15
+## v2.0.0-rc.2 改版预发布 · 2026-10-15
 
 本次整合中文文案二次润色、13 款精选模板、多页图文排版和发布流程修复。预发布版用于验证新版功能，完整真实发布流程与各平台安装包仍需验收。
 
-[版本下载与更新说明](https://github.com/BetaStreetOmnis/xhs_ai_publisher/releases/tag/v2.0.0-rc.1) · [验证结果与已知限制](docs/releases/v2.0.0-rc.1.md)
+[版本下载与更新说明](https://github.com/BetaStreetOmnis/xhs_ai_publisher/releases/tag/v2.0.0-rc.2) · [验证结果与已知限制](docs/releases/v2.0.0-rc.2.md)
 
 Web 服务默认仅本机访问，Docker 端口也绑定本机。远程访问必须设置 `XHS_WEB_API_TOKEN` 并通过 HTTPS 使用 `Authorization: Bearer <token>`；配置令牌后，本机 API 请求同样需要令牌。Web 页面可在“服务访问令牌”中填写，仅在当前页面内存中使用。使用反向代理或隧道时也必须设置令牌，不要依赖代理转发的客户端地址。
 
@@ -174,7 +174,7 @@ Web 服务默认仅本机访问，Docker 端口也绑定本机。远程访问必
 <details>
 <summary>改了哪些，还有哪些没做</summary>
 
-原评估版本：[dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_publisher/commit/dc766ff8151c7a6a7ce4dce90f9bf40562a07f06)。下面 6 项发布流程修复纳入 `v2.0.0-rc.1`，另补充 Web 访问保护。
+原评估版本：[dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_publisher/commit/dc766ff8151c7a6a7ce4dce90f9bf40562a07f06)。下面 6 项发布流程修复纳入 `v2.0.0-rc.2`，另补充 Web 访问保护。
 
 | 问题 | 进度 | 现在的处理方式 |
 | --- | --- | --- |
@@ -185,7 +185,7 @@ Web 服务默认仅本机访问，Docker 端口也绑定本机。远程访问必
 | [生成失败后还会发模板稿](src/core/browser.py#L445) | 已修复 | 热点文案生成失败就暂停，不再套固定内容继续发。提交后也不会按热点间隔自动滚动发布下一条。 |
 | [重启后任务可能卡住](src/core/scheduler/schedule_manager.py#L131) | 已修复 | 中断的定时任务和 Web 发布任务改为待核验，不会直接重发。任务记录改为先写临时文件再替换，写入失败不会启动发送。 |
 | Web 接口调用者验证 | 已增加 | 默认仅本机访问；远程调用必须设置访问令牌。配置令牌后所有 API 请求均需 Bearer 认证；浏览器跨来源请求被拒绝。 |
-| 部分旧测试不匹配当前接口 | 部分处理 | 已替换失效的内容测试并隔离运行数据；191 项维护中的离线测试通过。完整非浏览器测试仍有 17 项失败，详见版本说明。 |
+| 部分旧测试不匹配当前接口 | 部分处理 | 已替换失效的内容测试并隔离运行数据；192 项维护中的离线测试通过。完整非浏览器测试仍有 17 项失败，详见版本说明。 |
 
 这些修复没有解决内容真实性和平台规则的问题。真实经历、事实来源、图片和 AI 声明仍需要你在发布前核对；真实页面的完整发布流程还要验收。
 

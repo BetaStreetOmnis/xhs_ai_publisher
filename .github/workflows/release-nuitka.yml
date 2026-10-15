@@ -100,7 +100,8 @@ jobs:
           if [ "${{ runner.os }}" = "macOS" ]; then
             app="dist-nuitka/XHS-AI-Publisher.app/Contents/MacOS/XHS-AI-Publisher"
           else
-            app="dist-nuitka/main.dist/XHS-AI-Publisher"
+            app=$(find dist-nuitka -path '*.dist/XHS-AI-Publisher' -type f -print -quit)
+            test -n "$app"
           fi
           "$app" --smoke-test
 
@@ -109,13 +110,22 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist-release | Out-Null
-          Compress-Archive -Path dist-nuitka/* -DestinationPath dist-release/XHS-AI-Publisher-${{ matrix.artifact }}.zip -Force
+          $bundle = Get-ChildItem dist-nuitka -Directory -Filter *.dist | Select-Object -First 1
+          if (-not $bundle) { throw "Standalone bundle missing" }
+          Compress-Archive -Path $bundle.FullName -DestinationPath dist-release/XHS-AI-Publisher-${{ matrix.artifact }}.zip -Force
 
       - name: Archive Unix artifact
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist-release
-          tar -czf dist-release/XHS-AI-Publisher-${{ matrix.artifact }}.tar.gz -C dist-nuitka .
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            bundle="XHS-AI-Publisher.app"
+          else
+            bundle=$(find dist-nuitka -maxdepth 1 -type d -name '*.dist' -print -quit)
+            bundle=$(basename "$bundle")
+          fi
+          test -d "dist-nuitka/$bundle"
+          tar -czf dist-release/XHS-AI-Publisher-${{ matrix.artifact }}.tar.gz -C dist-nuitka "$bundle"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -12,6 +12,7 @@ from typing import List
 
 from src.core.services.chrome_login_state_service import import_login_state_from_system_chrome
 from src.core.services.publication_policy import PublicationNeedsReview
+from src.core.services.runtime_paths import get_logs_dir
 
 try:
     from PyQt5.QtWidgets import QInputDialog, QLineEdit, QApplication
@@ -60,7 +61,8 @@ except Exception:
         @staticmethod
         def getText(*args, **kwargs):
             return "", False
-log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
+get_logs_dir().mkdir(parents=True, exist_ok=True)
+log_path = str(get_logs_dir() / "xhsai_error.log")
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
 
 class VerificationCodeHandler(QObject):

@@ -1,7 +1,7 @@
 """Run maintained offline unit tests used to gate pre-release builds.
 
 The two legacy suites excluded here still target retired APIs. Their status is
-documented in docs/releases/v2.0.0-rc.1.md; this is not a full-suite pass.
+documented in docs/releases/v2.0.0-rc.2.md; this is not a full-suite pass.
 """
 
 from pathlib import Path

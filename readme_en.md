@@ -5,7 +5,7 @@
 <img src="https://img.shields.io/badge/🐍_Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
 <img src="https://img.shields.io/badge/📄_License-Apache_2.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white" alt="License"/>
 <img src="https://img.shields.io/badge/💻_Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"/>
-<img src="https://img.shields.io/badge/🚀_Version-2.0.0--rc.1-FF6B35?style=for-the-badge&logo=rocket&logoColor=white" alt="Version"/>
+<img src="https://img.shields.io/badge/🚀_Version-2.0.0--rc.2-FF6B35?style=for-the-badge&logo=rocket&logoColor=white" alt="Version"/>
 
 <br/>
 
@@ -27,11 +27,11 @@
 
 ---
 
-## v2.0.0-rc.1 redesign pre-release · 2026-10-15
+## v2.0.0-rc.2 redesign pre-release · 2026-10-15
 
 This pre-release brings together Chinese editing, 13 curated templates, multi-page image layouts and publication fixes. It is intended for validation; the full real-account publication flow and platform packages still need acceptance testing.
 
-[Downloads and release notes](https://github.com/BetaStreetOmnis/xhs_ai_publisher/releases/tag/v2.0.0-rc.1) · [Validation and known limits](docs/releases/v2.0.0-rc.1.md)
+[Downloads and release notes](https://github.com/BetaStreetOmnis/xhs_ai_publisher/releases/tag/v2.0.0-rc.2) · [Validation and known limits](docs/releases/v2.0.0-rc.2.md)
 
 Web access and the Docker host port default to loopback. Remote access requires `XHS_WEB_API_TOKEN` and HTTPS, with `Authorization: Bearer <token>`. Once a token is configured, local API calls also require it. Enter the token in the Web page's service-token field; it stays in page memory. Set a token behind reverse proxies and tunnels too; do not rely on the proxy's client address.
 
@@ -179,7 +179,7 @@ Xiaohongshu has published a notice about AI-managed accounts ([full text reprodu
 <details>
 <summary>What has changed and what remains</summary>
 
-Original reviewed revision: [dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_publisher/commit/dc766ff8151c7a6a7ce4dce90f9bf40562a07f06). The six publication fixes below are included in `v2.0.0-rc.1`, together with Web access protection.
+Original reviewed revision: [dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_publisher/commit/dc766ff8151c7a6a7ce4dce90f9bf40562a07f06). The six publication fixes below are included in `v2.0.0-rc.2`, together with Web access protection.
 
 | Problem | Progress | Current behavior |
 | --- | --- | --- |
@@ -190,7 +190,7 @@ Original reviewed revision: [dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_
 | [Generation errors still lead to fallback posts](src/core/browser.py#L445) | Fixed | Hotspot text generation failures pause the task rather than publishing fixed fallback text. A submitted hotspot task does not automatically schedule the next post. |
 | [Tasks can get stuck after a restart](src/core/scheduler/schedule_manager.py#L131) | Fixed | Interrupted scheduler and Web tasks require verification and are not resent. Records use temporary-file replacement; failed writes prevent dispatch. |
 | Web caller authentication | Added | Loopback-only by default. Remote calls require a configured token. Once set, every API request requires Bearer authentication; cross-origin browser requests are rejected. |
-| Some legacy tests target retired APIs | Partly addressed | Replaced stale content tests and isolated test data. The maintained offline suite passes 191 tests; the complete non-browser run still has 17 failures. See release notes. |
+| Some legacy tests target retired APIs | Partly addressed | Replaced stale content tests and isolated test data. The maintained offline suite passes 192 tests; the complete non-browser run still has 17 failures. See release notes. |
 
 These fixes do not establish content truthfulness or platform approval. Check personal experiences, factual sources, images and AI declarations before publishing. The complete workflow still needs verification on real platform pages.
 

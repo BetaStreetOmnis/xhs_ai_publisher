@@ -9,7 +9,9 @@ import asyncio
 from PyQt5.QtWidgets import QInputDialog, QLineEdit
 from PyQt5.QtCore import QObject, pyqtSignal, QMetaObject, Qt, QThread, pyqtSlot
 from PyQt5.QtWidgets import QApplication
-log_path = os.path.expanduser('~/Desktop/xhsai_error.log')
+from src.core.services.runtime_paths import get_logs_dir
+get_logs_dir().mkdir(parents=True, exist_ok=True)
+log_path = str(get_logs_dir() / "xhsai_error.log")
 logging.basicConfig(filename=log_path, level=logging.DEBUG)
 
 class VerificationCodeHandler(QObject):

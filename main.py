@@ -2,6 +2,7 @@ import logging
 import os
 import signal
 import sys
+from src.version import __version__
 from src.core.services.runtime_paths import get_logs_dir, init_runtime_env
 
 init_runtime_env()
@@ -122,7 +123,7 @@ class XiaohongshuUI(QMainWindow):
 
         self.logger.success("小红书发文助手启动")
 
-        self.setWindowTitle("✨ 小红书发文助手")
+        self.setWindowTitle(f"✨ 小红书发文助手 {__version__}")
 
         self.setStyleSheet(f"""
             QMainWindow {{
@@ -433,13 +434,13 @@ class XiaohongshuUI(QMainWindow):
 
     def on_scheduled_task_completed(self, task_id: str):
         try:
-            TipWindow(self, f"✅ 定时任务发布成功：{task_id}").show()
+            TipWindow(self, f"📤 定时任务已执行，请核验平台结果：{task_id}").show()
         except Exception:
             pass
 
     def on_scheduled_task_failed(self, task_id: str, reason: str):
         try:
-            msg = f"❌ 定时任务发布失败：{task_id}"
+            msg = f"⚠️ 定时任务已暂停，等待核验：{task_id}"
             if reason:
                 msg += f"\n{reason}"
             TipWindow(self, msg).show()
@@ -566,14 +567,13 @@ class XiaohongshuUI(QMainWindow):
                                     if result.returncode == 0:
                                         self.logger.success("✅ Chrome浏览器下载完成")
                                         
-                                        # 再次验证安装
-                                        with sync_playwright() as p2:
-                                            try:
-                                                browser = p2.chromium.launch(headless=True)
-                                                browser.close()
-                                                self.logger.success("✅ Chrome浏览器验证成功")
-                                            except Exception as verify_error:
-                                                self.logger.error(f"❌ Chrome浏览器验证失败: {str(verify_error)}")
+                                        # Reuse the active context; nesting sync contexts fails.
+                                        try:
+                                            browser = p.chromium.launch(headless=True)
+                                            browser.close()
+                                            self.logger.success("✅ Chrome浏览器验证成功")
+                                        except Exception as verify_error:
+                                            self.logger.error(f"❌ Chrome浏览器验证失败: {str(verify_error)}")
                                     else:
                                         self.logger.error(f"❌ Chrome浏览器下载失败: {result.stderr}")
                                         self.logger.info("💡 您可以手动运行: python -m playwright install chromium")
@@ -614,6 +614,10 @@ class XiaohongshuUI(QMainWindow):
 
 
 if __name__ == "__main__":
+    if "--smoke-test" in sys.argv:
+        from src.core.services.release_smoke import run_release_smoke
+        run_release_smoke()
+        sys.exit(0)
     try:
         load_env_file()
         init_playwright_env()
@@ -626,6 +630,7 @@ if __name__ == "__main__":
         signal.signal(signal.SIGINT, signal_handler)
 
         app = QApplication(sys.argv)
+        app.setApplicationVersion(__version__)
         # Prefer a UI font that supports CJK, and let monospace be opt-in per widget.
         app.setFont(ui_font(12))
 

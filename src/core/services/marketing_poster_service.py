@@ -532,113 +532,12 @@ class MarketingPosterService:
         return Path(os.path.expanduser("~")) / ".xhs_system" / "generated_imgs"
 
     def generate(self, content: Dict[str, Any], *, out_dir: Path) -> List[Dict[str, str]]:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        from src.core.services.marketing_poster_layout import render_marketing
 
-        title = clean_text(str(content.get("title") or "营销海报"))
-        subtitle = clean_text(str(content.get("subtitle") or ""))
-        price = clean_text(str(content.get("price") or ""))
-        keyword = clean_text(str(content.get("keyword") or "")) or "咨询"
-        accent_name = clean_text(str(content.get("accent") or "blue")).lower()
-        accent = ACCENTS.get(accent_name, ACCENTS["blue"])
+        def font_factory(_family, style, size):
+            return self.fonts.get(size=size, bold=style == 'bold')
 
-        asset_image_path = str(content.get("asset_image_path") or "").strip()
-        asset_image_path = os.path.expanduser(asset_image_path) if asset_image_path else ""
-        if asset_image_path and not os.path.exists(asset_image_path):
-            asset_image_path = ""
-
-        cover_bullets = _normalize_list(
-            content.get("cover_bullets"),
-            min_items=3,
-            max_items=3,
-            fallback=["核心卖点 1", "核心卖点 2", "核心卖点 3"],
-        )
-        outline_items = _normalize_list(
-            content.get("outline_items"),
-            min_items=8,
-            max_items=10,
-            fallback=["亮点概览", "功能说明", "适用场景", "交付方式", "注意事项"],
-        )
-
-        highlights_raw = content.get("highlights")
-        highlights: List[Tuple[str, str]] = []
-        if isinstance(highlights_raw, list):
-            for item in highlights_raw:
-                if not isinstance(item, dict):
-                    continue
-                h_title = clean_text(str(item.get("title") or "亮点"))
-                h_desc = clean_text(str(item.get("desc") or item.get("description") or ""))
-                if h_title:
-                    highlights.append((h_title, h_desc))
-        while len(highlights) < 4:
-            idx = len(highlights) + 1
-            highlights.append((f"亮点 {idx}", "一句话说明它能解决什么问题"))
-        highlights = highlights[:4]
-
-        delivery_steps = _normalize_list(
-            content.get("delivery_steps"),
-            min_items=3,
-            max_items=3,
-            fallback=["下单购买", "确认需求/领取资料", "开始使用/复盘优化"],
-        )
-        pain_points = _normalize_list(
-            content.get("pain_points"),
-            min_items=4,
-            max_items=4,
-            fallback=["不知道从哪开始", "信息太碎不好整理", "做完效果不稳定", "缺少可复用模板"],
-        )
-
-        audience_raw = content.get("audience")
-        audience: List[Dict[str, Any]] = []
-        if isinstance(audience_raw, list):
-            for item in audience_raw:
-                if not isinstance(item, dict):
-                    continue
-                badge = clean_text(str(item.get("badge") or ""))[:1] or "A"
-                a_title = clean_text(str(item.get("title") or "适合人群"))
-                bullets = _normalize_list(
-                    item.get("bullets"),
-                    min_items=2,
-                    max_items=3,
-                    fallback=["痛点清晰", "希望快速上手", "需要可复制模板"],
-                )
-                audience.append({"badge": badge, "title": a_title, "bullets": bullets})
-        while len(audience) < 3:
-            idx = len(audience) + 1
-            audience.append({"badge": str(idx), "title": f"人群 {idx}", "bullets": ["痛点清晰", "希望快速上手"]})
-        audience = audience[:3]
-
-        disclaimer = clean_text(str(content.get("disclaimer") or "仅供参考｜请遵守平台规则"))
-
-        posters: List[Tuple[str, Image.Image]] = [
-            (
-                "01_cover.png",
-                self._poster_cover(
-                    title=title,
-                    subtitle=subtitle,
-                    bullets=cover_bullets,
-                    price=price,
-                    keyword=keyword,
-                    accent=accent,
-                    disclaimer=disclaimer,
-                    asset_image_path=asset_image_path,
-                ),
-            ),
-            ("02_outline.png", self._poster_outline(title=title, items=outline_items, keyword=keyword, accent=accent)),
-            (
-                "03_highlights.png",
-                self._poster_highlights(title=title, highlights=highlights, price=price, keyword=keyword, accent=accent),
-            ),
-            ("04_delivery.png", self._poster_delivery(steps=delivery_steps, price=price, accent=accent)),
-            ("05_pain_points.png", self._poster_pain_points(points=pain_points, price=price, keyword=keyword, accent=accent)),
-            ("06_audience.png", self._poster_audience(audience=audience, keyword=keyword)),
-        ]
-
-        out_paths: List[Dict[str, str]] = []
-        for filename, img in posters:
-            path = out_dir / filename
-            img.save(str(path), format="PNG", optimize=True)
-            out_paths.append({"title": Path(filename).stem, "image_path": str(path)})
-        return out_paths
+        return render_marketing(content, out_dir, font_factory, self.size)
 
     def generate_to_local_paths(self, content: Dict[str, Any]) -> Tuple[str, List[str]]:
         ts = int(time.time())

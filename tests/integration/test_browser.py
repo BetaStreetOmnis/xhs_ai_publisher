@@ -14,6 +14,9 @@ from pathlib import Path
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 
+pytestmark = pytest.mark.browser
+
+
 class TestBrowserAutomation:
     """浏览器自动化测试类"""
     

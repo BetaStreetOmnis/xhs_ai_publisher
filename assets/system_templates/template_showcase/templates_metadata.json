@@ -115,7 +115,7 @@
     },
     {
       "id": "marketing_poster",
-      "name": "营销海报🌟🌟🌟",
+      "name": "营销海报",
       "category": "marketing",
       "regions": [
         "title",
@@ -285,6 +285,101 @@
         "border"
       ],
       "design": "certificate_formal"
+    },
+    {
+      "id": "pink_note",
+      "name": "粉色便签",
+      "category": "minimal",
+      "regions": [
+        "title",
+        "body"
+      ],
+      "design": "memo"
+    },
+    {
+      "id": "lavender_wave",
+      "name": "淡紫便签",
+      "category": "minimal",
+      "regions": [
+        "title",
+        "body"
+      ],
+      "design": "memo"
+    },
+    {
+      "id": "mint_dots_wave",
+      "name": "薄荷便签",
+      "category": "minimal",
+      "regions": [
+        "title",
+        "body"
+      ],
+      "design": "memo"
+    },
+    {
+      "id": "minimal_lines",
+      "name": "简洁笔记",
+      "category": "minimal",
+      "regions": [
+        "title",
+        "body"
+      ],
+      "design": "editorial"
+    },
+    {
+      "id": "orange_paper",
+      "name": "橙白立体",
+      "category": "featured",
+      "regions": [
+        "title",
+        "body",
+        "image"
+      ],
+      "design": "orange_paper"
+    },
+    {
+      "id": "editorial_cream",
+      "name": "奶油杂志",
+      "category": "featured",
+      "regions": [
+        "title",
+        "body",
+        "image"
+      ],
+      "design": "editorial_cream"
+    },
+    {
+      "id": "checklist_lemon",
+      "name": "柠檬清单",
+      "category": "featured",
+      "regions": [
+        "title",
+        "body",
+        "image"
+      ],
+      "design": "checklist_lemon"
+    },
+    {
+      "id": "paper_mint",
+      "name": "薄荷纸雕",
+      "category": "featured",
+      "regions": [
+        "title",
+        "body",
+        "image"
+      ],
+      "design": "paper_mint"
+    },
+    {
+      "id": "screenshot_story",
+      "name": "大截图图文",
+      "category": "featured",
+      "regions": [
+        "title",
+        "body",
+        "image"
+      ],
+      "design": "screenshot_story"
     }
   ],
   "categories": [
@@ -297,7 +392,8 @@
     "minimal",
     "grid",
     "timeline",
-    "certificate"
+    "certificate",
+    "featured"
   ],
   "color_schemes": [
     "professional",
@@ -309,5 +405,6 @@
     "cool",
     "monochrome"
   ],
-  "total": 22
+  "total": 32,
+  "visible_count": 13
 }

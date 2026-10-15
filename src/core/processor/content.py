@@ -10,6 +10,7 @@ from .content_backup import BackupContentGenerator
 from src.config.config import Config
 from src.core.services.llm_service import llm_service, LLMServiceError
 from src.core.services.system_image_template_service import system_image_template_service
+from src.core.services.poster_catalog import LAYOUT_TEMPLATES, layout_for_template
 
 
 class ContentGeneratorThread(QThread):
@@ -33,8 +34,8 @@ class ContentGeneratorThread(QThread):
         except Exception:
             selected_cover_tpl = ""
 
-        # 特殊模板：营销海报（本地渲染 6 张图）
-        if selected_cover_tpl == "showcase_marketing_poster":
+        # 图文版式使用海报生成流程；页数由内容决定。
+        if selected_cover_tpl == "showcase_marketing_poster" or selected_cover_tpl in LAYOUT_TEMPLATES:
             try:
                 self.generate_btn.setText("🪧 生成营销海报中...")
                 self.generate_btn.setEnabled(False)
@@ -117,7 +118,7 @@ class ContentGeneratorThread(QThread):
                 return first_line
 
             short = _summarize_error(last_text)
-            reason = "⚠️ 大模型不可用，已切换为本地生成"
+            reason = "⚠️ 模型不可用，当前为原文预览，未生成新文案"
             if short:
                 reason += f"\n{short}"
             _try_backup(reason=reason)
@@ -137,7 +138,7 @@ class ContentGeneratorThread(QThread):
 
         extracted_price = self._extract_price_value(self.input_text)
         price_hint = price_override or extracted_price
-        keyword_hint = keyword_override or "咨询"
+        keyword_hint = keyword_override
 
         content = llm_service.generate_marketing_poster_content(
             topic=self.input_text,
@@ -147,7 +148,10 @@ class ContentGeneratorThread(QThread):
 
         # 可选：注入用户选择的“营销海报素材”（透明 PNG）
         try:
-            asset_path = str(Config().get_templates_config().get("marketing_poster_asset_path") or "").strip()
+            asset_config = Config().get_templates_config()
+            asset_path = str(asset_config.get("marketing_poster_asset_path") or "").strip()
+            content['page_asset_paths'] = asset_config.get('poster_page_asset_paths') or []
+            content['poster_layout'] = layout_for_template(asset_config.get('selected_cover_template_id') or '', asset_config.get('poster_layout') or '')
         except Exception:
             asset_path = ""
         asset_path = os.path.expanduser(asset_path) if asset_path else ""
@@ -198,7 +202,11 @@ class ContentGeneratorThread(QThread):
     def _format_marketing_poster_info_reason(content: dict) -> str:
         source = str((content or {}).get("__source") or "").strip().lower()
         if source == "llm":
-            return "🪧 营销海报：大模型 AI 文案 + 本地渲染"
+            reason = "🪧 营销海报：大模型 AI 文案 + 本地渲染"
+            review = (content or {}).get('writing_review') or {}
+            if review.get('message'):
+                reason += '\n' + review['message']
+            return reason
         return "🪧 营销海报：默认文案 + 本地渲染"
 
     def _use_backup_generator(self, info_reason: str = ""):
@@ -262,6 +270,11 @@ class ContentGeneratorThread(QThread):
             cover_path = ""
             content_paths = []
             image_source = "placeholder"
+            image_brief = (llm_resp.raw_json or {}).get("image_brief", {})
+            if not isinstance(image_brief, dict):
+                image_brief = {}
+            image_brief = {key: str(image_brief.get(key) or "").strip()
+                           for key in ("cover_heading", "cover_description")}
 
             # 优先使用系统模板图片（如 x-auto-publisher），生成更真实的封面/内容图
             try:
@@ -278,14 +291,19 @@ class ContentGeneratorThread(QThread):
 
                 if pages:
                     # 避免生成过多图片导致卡顿
-                    pages = pages[:8]
                     page_count = max(1, len(pages))
+
+                asset_config = Config().get_templates_config()
 
                 generated = system_image_template_service.generate_post_images(
                     title=llm_resp.title,
                     content=llm_resp.content,
                     content_pages=pages,
                     page_count=page_count,
+                    cover_heading=image_brief["cover_heading"],
+                    cover_description=image_brief["cover_description"],
+                    cover_asset_image_path=str(asset_config.get('marketing_poster_asset_path') or ''),
+                    page_asset_paths=asset_config.get('poster_page_asset_paths') or [],
                 )
                 if generated:
                     cover_path, content_paths = generated
@@ -310,9 +328,12 @@ class ContentGeneratorThread(QThread):
                 'content_pages': pages or [],
                 'input_text': self.input_text,
                 'generator': 'llm',
+                'image_brief': image_brief,
                 'info_reason': (
                     "🤖 已使用大模型生成文案"
                     + ("（图片：系统模板）" if image_source == "system_templates" else "（图片：占位图）")
+                    + ('\n' + (llm_resp.raw_json or {}).get('writing_review', {}).get('message', '')
+                       if (llm_resp.raw_json or {}).get('writing_review', {}).get('message') else '')
                 ),
             }
 

@@ -8,6 +8,7 @@ import time
 from functools import partial
 
 from src.core.write_xiaohongshu import XiaohongshuPoster
+from src.core.services.publication_policy import PublicationNeedsReview
 
 
 class BrowserThread(QThread):
@@ -26,6 +27,7 @@ class BrowserThread(QThread):
         self.action_queue = []
         self.is_running = True
         self.loop = None
+        self._scheduled_publish_paused = False
 
     def run(self):
         # 创建新的事件循环
@@ -178,12 +180,15 @@ class BrowserThread(QThread):
                         self.preview_error.emit(str(e))
                     elif action['type'] == 'scheduled_publish':
                         task_id = str(action.get('task_id') or "")
+                        self._scheduled_publish_paused = True
                         self.scheduled_task_result.emit(task_id, False, str(e))
             # 使用异步sleep而不是QThread.msleep
             await asyncio.sleep(0.1)  # 避免CPU占用过高
 
     async def _run_scheduled_publish(self, action: dict):
         """执行定时发布（无人值守，自动点击发布）。"""
+        if self._scheduled_publish_paused:
+            raise PublicationNeedsReview("定时发布队列已暂停，请先核验账号及笔记记录，再重新启动程序")
         task_id = str(action.get("task_id") or "")
         user_id = action.get("user_id")
         task_type = str(action.get("task_type") or "fixed").strip() or "fixed"
@@ -291,8 +296,9 @@ class BrowserThread(QThread):
 
             await poster.initialize()
             await poster.post_article(title, content, images, auto_publish=True)
-            self.scheduled_task_result.emit(task_id, True, "")
+            self.scheduled_task_result.emit(task_id, True, getattr(poster, "last_publish_status", "unknown"))
         except Exception as e:
+            self._scheduled_publish_paused = True
             self.scheduled_task_result.emit(task_id, False, str(e))
         finally:
             try:
@@ -498,10 +504,8 @@ class BrowserThread(QThread):
             )
             generated_title = str(getattr(resp, "title", "") or "").strip()
             generated_content = str(getattr(resp, "content", "") or "").strip()
-        except Exception:
-            fallback = cls._fallback_generate_xhs_content(topic)
-            generated_title = str(fallback.get("title") or "").strip()
-            generated_content = str(fallback.get("content") or "").strip()
+        except Exception as error:
+            raise PublicationNeedsReview("热点文案生成失败，任务已暂停，请人工检查；不会自动发布模板稿") from error
 
         if not generated_title and not generated_content:
             raise RuntimeError("生成失败：标题/内容为空")

@@ -25,6 +25,8 @@ curl --fail --silent --show-error http://127.0.0.1:8000/healthz
 curl --fail --silent --show-error http://127.0.0.1:8000/api/auth/status
 ```
 
+配置了 `XHS_WEB_API_TOKEN` 时，所有 `/api/` 请求都需加 `Authorization: Bearer <token>` 请求头。本机调用也一样；通过代理或隧道访问时必须配置令牌和 HTTPS。
+
 健康检查成功不代表小红书账号已经登录。未登录或遇到验证码时，在 Mac 上完成登录。Mac 需要保持开机，服务也需要继续运行。
 
 ## 给 Codex 的操作说明
@@ -84,6 +86,6 @@ curl --fail --silent --show-error http://127.0.0.1:8000/api/auth/status
 
 `POST /api/publish` 的 `auto_publish=false` 只填写浏览器，仍需要在电脑浏览器中确认；它不是手机发布确认功能。明确授权的自动发布使用 `auto_publish=true`。
 
-发布请求返回后，查询内容状态。当前实现会记录 `publishing`、`published` 或 `failed`；最终是否成功仍要结合工具输出和实际笔记核对。结果不明确时先核查，避免重复发布。
+发布请求返回后，查询内容状态。当前实现会记录 `queued`、`publishing`、`submitted`、`under_review`、`needs_review`、`unknown` 或 `failed`。`submitted` 只代表工具识别到提交提示，`under_review` 仍在审核；都不代表审核通过。重复请求会返回 409，先核对平台记录，不要换个草稿 ID 再发同一内容。
 
-普通管家聊天目前只有任务查询工具。这里的执行者是 Codex；手机持续跟进也是通过向原会话发消息来跟进。初次使用建议手动发要求、手动确认发布，不把发布放进宽泛的自动跟进目标。
+普通管家聊天目前只有任务查询工具。这里的执行者是 Codex；手机持续跟进也是通过向原会话发消息来跟进。初次使用建议只做草稿和预览，最后在小红书页面确认发布；不要把发布放进宽泛的自动跟进目标。账号风险与修复进度见 [README](../readme.md#使用限制与已知问题)。

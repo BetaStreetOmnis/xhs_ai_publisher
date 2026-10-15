@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-12",
+  "generator": "built-in imagegen",
+  "purpose": "decorative paper illustrations, not software screenshots or live results",
+  "runtime_generation": "local Pillow typesetting; no image API calls",
+  "assets": [
+    {
+      "file": "checklist.png",
+      "dimensions": [
+        1254,
+        1254
+      ],
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "sha256": "b92bdf159ca1ed34c31bc37764f270b9c667ddb2f07bdaa96b7a7685ad46f959"
+    },
+    {
+      "file": "hero.png",
+      "dimensions": [
+        1680,
+        936
+      ],
+      "mode": "RGBA",
+      "alpha_range": [
+        0,
+        255
+      ],
+      "sha256": "7c6dd965cdec0ed7b7c312af9f0fbe3b03858c7efabfd21959595d3a796e23b4"
+    }
+  ]
+}

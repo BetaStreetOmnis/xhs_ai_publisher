@@ -10,6 +10,7 @@ import os
 from src.core.alert import TipWindow
 from src.core.pages.scheduled_publish_dialog import ScheduledPublishDialog
 from src.core.processor.content import ContentGeneratorThread
+from src.core.services.writing_guidelines import build_imported_reference
 from src.core.processor.img import ImageProcessorThread
 from src.core.processor.chrome_session_import import ChromeSessionImportThread
 from src.core.processor.wechat_import import WechatArticleImportThread
@@ -389,7 +390,10 @@ class HomePage(QWidget):
         # 添加输入框
         self.input_text = QTextEdit()
         self.input_text.setMinimumHeight(120)
-        self.input_text.setPlainText("中医的好处")
+        self.input_text.setPlaceholderText(
+            "写下主题、原稿或实际经历。比如：做了什么、遇到什么问题、结果怎样。\n"
+            "也可以附一段你平时的写法，生成时沿用这个语气。"
+        )
         input_container_layout.addWidget(self.input_text)
 
         # 创建按钮布局
@@ -823,6 +827,8 @@ class HomePage(QWidget):
             author = str((data or {}).get("author") or "").strip()
             image_urls = (data or {}).get("image_urls") or []
 
+            reference_content = content
+
             # 简单截断：避免超长内容导致发布页输入异常（用户仍可手动编辑）
             max_len = 1000
             if content and len(content) > max_len:
@@ -840,7 +846,9 @@ class HomePage(QWidget):
             # 主题输入框也填一下，便于后续继续生成/改写
             try:
                 if hasattr(self, "input_text") and self.input_text is not None:
-                    self.input_text.setPlainText(title or "")
+                    self.input_text.setPlainText(build_imported_reference(
+                        title, reference_content, author, str((data or {}).get("url") or "").strip()
+                    ))
             except Exception:
                 pass
 
@@ -1092,6 +1100,8 @@ class HomePage(QWidget):
             result['content_images'],
             result['input_text'],
             result.get('content_pages') if isinstance(result, dict) else None,
+            result.get('image_brief') if isinstance(result, dict) else None,
+            preserve_generated_images=result.get('generator') == 'marketing_poster',
         )
 
     def handle_generation_error(self, error_message):
@@ -1155,7 +1165,7 @@ class HomePage(QWidget):
         # 显示用户友好的错误消息
         QMessageBox.warning(self, "内容生成失败", user_message)
 
-    def update_ui_after_generate(self, title, content, cover_image_url, content_image_urls, input_text, content_pages=None):
+    def update_ui_after_generate(self, title, content, cover_image_url, content_image_urls, input_text, content_pages=None, image_brief=None, preserve_generated_images=False):
         try:
             # 优先使用系统模板生成封面 + 内容页（观感更统一）；如用户在“封面模板库”选择了模板，则使用该背景
             try:
@@ -1176,8 +1186,16 @@ class HomePage(QWidget):
                 if isinstance(content_pages, (list, tuple)) and content_pages:
                     page_count = max(1, len(content_pages))
 
+                brief = image_brief if isinstance(image_brief, dict) else {}
+                cover_options = {
+                    "cover_heading": str(brief.get("cover_heading") or ""),
+                    "cover_description": str(brief.get("cover_description") or ""),
+                }
+                asset_config = Config().get_templates_config()
+                cover_options["cover_asset_image_path"] = str(asset_config.get("marketing_poster_asset_path") or "")
+                cover_options["page_asset_paths"] = asset_config.get('poster_page_asset_paths') or []
                 generated = None
-                if bg_path and os.path.exists(bg_path):
+                if not preserve_generated_images and bg_path and os.path.exists(bg_path):
                     # 仅将“封面模板库”背景用于封面；内容页仍使用系统内容模板包，
                     # 避免用封面背景渲染内容页导致文字不可读/像空白。
                     generated = system_image_template_service.generate_post_images(
@@ -1186,15 +1204,17 @@ class HomePage(QWidget):
                         content_pages=content_pages if isinstance(content_pages, (list, tuple)) else None,
                         page_count=page_count,
                         cover_bg_image_path=bg_path,
+                        **cover_options,
                     )
 
                 # 未选择封面背景或生成失败：使用系统默认内容模板包生成（比远程图片更“卡片化”）
-                if not generated:
+                if not preserve_generated_images and not generated:
                     generated = system_image_template_service.generate_post_images(
                         title=title or "",
                         content=content or "",
                         content_pages=content_pages if isinstance(content_pages, (list, tuple)) else None,
                         page_count=page_count,
+                        **cover_options,
                     )
 
                 if generated:

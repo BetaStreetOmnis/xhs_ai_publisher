@@ -139,6 +139,8 @@ class Config:
             'model_name': 'gpt-3.5-turbo',
             'prompt_template': 'xiaohongshu_default',
             'system_prompt': '你是一个小红书内容创作助手，帮助用户生成优质内容',
+            'chinese_editor_enabled': True,
+            'writing_sample': '',
             'advanced': {
                 'temperature': 0.7,
                 'max_tokens': 1000,
@@ -154,6 +156,7 @@ class Config:
             'Anthropic（Claude）': 'https://api.anthropic.com/v1/messages',
             '阿里云（通义千问）': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
             '月之暗面（Kimi）': 'https://api.moonshot.cn/v1/chat/completions',
+            'Kimi Code（会员套餐）': 'https://api.kimi.com/coding/v1/chat/completions',
             '字节跳动（豆包）': 'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
             '腾讯（混元）': 'https://api.lkeap.cloud.tencent.com/v1/chat/completions',
             '本地模型': 'http://localhost:1234/v1/chat/completions'

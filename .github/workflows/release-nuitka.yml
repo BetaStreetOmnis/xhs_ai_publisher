@@ -15,7 +15,37 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0
+          python -m pip install -r requirements.txt pytest pytest-asyncio
+      - name: Verify version matches release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+          IS_TAG: ${{ startsWith(github.ref, 'refs/tags/') || inputs.release_tag != '' }}
+        run: |
+          python -c 'import os; from src.version import __version__; assert os.environ["IS_TAG"] != "true" or os.environ["RELEASE_TAG"] == "v" + __version__'
+      - name: Run maintained offline regression suite
+        run: python scripts/test_release.py
+      - name: Check source assets and template rendering
+        env:
+          XHS_DATA_DIR: ${{ runner.temp }}/xhs-source-smoke
+        run: python main.py --smoke-test
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -33,6 +63,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
 
       - uses: actions/setup-python@v5
         with:
@@ -46,6 +78,31 @@ jobs:
 
       - name: Build standalone
         run: python scripts/build_nuitka.py --clean --assume-yes --output-dir dist-nuitka
+
+      - name: Check packaged application (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          XHS_DATA_DIR: ${{ runner.temp }}/xhs-package-smoke
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $app = Get-ChildItem dist-nuitka -Recurse -Filter XHS-AI-Publisher.exe | Select-Object -First 1
+          if (-not $app) { throw "Packaged executable missing" }
+          $process = Start-Process -FilePath $app.FullName -ArgumentList '--smoke-test' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Packaged smoke test failed: $($process.ExitCode)" }
+
+      - name: Check packaged application (Unix)
+        if: runner.os != 'Windows'
+        env:
+          XHS_DATA_DIR: ${{ runner.temp }}/xhs-package-smoke
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            app="dist-nuitka/XHS-AI-Publisher.app/Contents/MacOS/XHS-AI-Publisher"
+          else
+            app="dist-nuitka/main.dist/XHS-AI-Publisher"
+          fi
+          "$app" --smoke-test
 
       - name: Archive Windows artifact
         if: runner.os == 'Windows'
@@ -73,3 +130,6 @@ jobs:
           files: dist-release/*
           tag_name: ${{ inputs.release_tag || github.ref_name }}
           overwrite_files: true
+          prerelease: ${{ contains(inputs.release_tag || github.ref_name, '-') }}
+          make_latest: ${{ !contains(inputs.release_tag || github.ref_name, '-') }}
+          body_path: docs/releases/${{ inputs.release_tag || github.ref_name }}.md

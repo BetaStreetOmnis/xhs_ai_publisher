@@ -338,6 +338,12 @@ class SystemImageTemplateService:
             )
 
         results.sort(key=lambda t: (t.get("category") or "zzz", t.get("name") or "", t.get("variant") or ""))
+        from src.core.services.poster_catalog import LAYOUT_TEMPLATES, RETIRED_REPLACEMENTS
+        bundled = Path(__file__).resolve().parents[3] / 'assets/system_templates/template_showcase'
+        if showcase_dir.resolve() == bundled.resolve():
+            results = [t for t in results if t['id'] not in RETIRED_REPLACEMENTS]
+        order = {key:n for n,key in enumerate(LAYOUT_TEMPLATES)}
+        results.sort(key=lambda t: (0,order[t['id']]) if t['id'] in order else (1,t.get('display') or ''))
         return results
 
     def get_selected_pack_id(self) -> str:
@@ -1707,6 +1713,10 @@ class SystemImageTemplateService:
         target_size: Tuple[int, int] = (1080, 1440),
         bg_image_path: str = "",
         cover_bg_image_path: str = "",
+        cover_heading: str = "",
+        cover_description: str = "",
+        cover_asset_image_path: str = "",
+        page_asset_paths: Optional[Sequence[str]] = None,
     ) -> Optional[Tuple[str, List[str]]]:
         """基于系统模板生成封面 + 内容图（返回本地路径）。"""
         show_tags = self._env_bool("XHS_IMG_SHOW_TAGS", default=False)
@@ -1737,6 +1747,58 @@ class SystemImageTemplateService:
         # 内容页：只有在未指定 bg_override 时才使用模板包
         if not bg_override:
             pack = self.choose_pack(pack_id or self.get_selected_pack_id())
+
+        # Bundled images are previews of measured layouts, not backgrounds to
+        # paint over. Imported images and packs retain their original behavior.
+        from src.core.services.poster_template_renderer import bundled_template_id, PosterTemplateRenderer
+        from src.core.services.poster_catalog import bundled_layout
+        template_id = bundled_template_id(cover_override or bg_override)
+        layout = bundled_layout(cover_override or bg_override)
+        if layout or template_id or (not pack and not bg_override and not cover_override):
+            page_sources = [str(x) for x in (content_pages or []) if str(x).strip()]
+            parsed_pages = []
+            for source in page_sources:
+                heading, body = self._parse_page(source)
+                body, _tags = self._extract_tags(self._clean_text(body))
+                if body.strip():
+                    parsed_pages.append((self._clean_text(heading), body))
+            if not parsed_pages:
+                body, _tags = self._extract_tags(self._clean_text(content))
+                if body:
+                    parsed_pages = [("", body)]
+            output_dir = Path(os.path.expanduser("~")) / ".xhs_system" / "generated_imgs"
+            if layout:
+                from src.core.services.marketing_poster_layout import render_marketing
+                payload = {
+                    'poster_layout': layout,
+                    'title': self._clean_text(cover_heading or title) or '小红书笔记',
+                    'subtitle': self._clean_text(cover_description),
+                    'pages': [{'title': heading, 'body': body} for heading, body in parsed_pages],
+                    'page_asset_paths': list(page_asset_paths or []),
+                }
+                if cover_asset_image_path:
+                    payload['asset_image_path'] = str(Path(cover_asset_image_path).expanduser())
+                images = render_marketing(payload, output_dir / f'{int(time.time())}_{uuid.uuid4().hex[:8]}', font_manager.get_font, target_size)
+                return images[0]['image_path'], [item['image_path'] for item in images[1:]]
+            renderer = PosterTemplateRenderer(font_manager.get_font, target_size, template_id)
+            if page_asset_paths:
+                return renderer.save_illustrated(
+                    output_dir, f"{int(time.time())}_{uuid.uuid4().hex[:8]}",
+                    self._clean_text(cover_heading or title) or "小红书笔记",
+                    self._clean_text(cover_description), parsed_pages,
+                    list(page_asset_paths), str(Path(cover_asset_image_path).expanduser()) if cover_asset_image_path else '',
+                )
+            result = renderer.save(
+                output_dir, f"{int(time.time())}_{uuid.uuid4().hex[:8]}",
+                self._clean_text(cover_heading or title) or "小红书笔记",
+                self._clean_text(cover_description), parsed_pages,
+            )
+            if cover_asset_image_path:
+                renderer.render_asset_cover(
+                    self._clean_text(cover_heading or title), self._clean_text(cover_description),
+                    str(Path(cover_asset_image_path).expanduser()), len(result[1])+1,
+                ).save(result[0], quality=95)
+            return result
 
         raw_pages = [str(x) for x in (content_pages or []) if str(x).strip()]
         pages = list(raw_pages)

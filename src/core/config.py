@@ -3,6 +3,7 @@ import json
 from typing import Dict, Any, Optional
 from dataclasses import dataclass, asdict
 from pathlib import Path
+from src.version import __version__
 
 
 def _env_flag(name: str, default: bool) -> bool:
@@ -39,10 +40,10 @@ class BrowserConfig:
 @dataclass
 class WebConfig:
     """Web服务配置"""
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
-    debug: bool = True
-    reload: bool = True
+    debug: bool = False
+    reload: bool = False
 
 
 @dataclass
@@ -103,7 +104,7 @@ class XiaohongshuConfig:
 class AppConfig:
     """应用配置"""
     app_name: str = "XHS_AI_Publisher"
-    version: str = "1.0.0"
+    version: str = __version__
     data_dir: str = None
     log_level: str = "INFO"
     
@@ -177,7 +178,7 @@ class ConfigManager:
                     self.xiaohongshu = XiaohongshuConfig(**xhs_data)
             
             if 'app' in config_data:
-                self.app = AppConfig(**config_data['app'])
+                self.app = AppConfig(**{**config_data['app'], 'version': __version__})
                 
         except Exception as e:
             print(f"加载配置文件失败: {e}")

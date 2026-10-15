@@ -11,6 +11,7 @@ from glob import glob
 from typing import List
 
 from src.core.services.chrome_login_state_service import import_login_state_from_system_chrome
+from src.core.services.publication_policy import PublicationNeedsReview
 
 try:
     from PyQt5.QtWidgets import QInputDialog, QLineEdit, QApplication
@@ -128,6 +129,8 @@ class XiaohongshuPoster:
         self._owns_browser_session = True
         self.token = None
         self._last_sso_warmup_at = 0.0
+        self.last_publish_status = "draft"
+        self._submission_attempted = False
         self._setup_storage_paths()
         # 不再在初始化时调用 initialize，而是让调用者显式调用
 
@@ -1619,6 +1622,42 @@ class XiaohongshuPoster:
         await self._save_cookies()
         await self._save_storage_state()
 
+    async def _click_final_publish_button(self, button):
+        if self._submission_attempted:
+            raise PublicationNeedsReview("发布按钮已经尝试点击，请先人工核验，不会再次点击")
+        self._submission_attempted = True
+        self.last_publish_status = "unknown"
+        try:
+            await button.click(timeout=8000)
+        except Exception as error:
+            raise PublicationNeedsReview("发布按钮已尝试点击，但结果不明，请人工核验，不要重发") from error
+
+    async def _check_publication_dialogs(self):
+        # Dialogs may contain account warnings or content declarations. Leave
+        # their confirmation to the user rather than guessing from button text.
+        dialogs = self.page.locator("div[role='dialog'], .el-dialog, .ant-modal")
+        for index in range(await dialogs.count()):
+            if await dialogs.nth(index).is_visible():
+                raise PublicationNeedsReview("检测到发布弹窗，请在浏览器中人工核验；程序不会自动确认")
+
+    async def _wait_for_publication_result(self, timeout_seconds=30):
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if await self._has_blocking_auth_issue():
+                raise PublicationNeedsReview("发布过程中登录状态异常，请人工核验提交结果")
+            await self._check_publication_dialogs()
+            for text, status in (("审核中", "under_review"), ("发布成功", "submitted"), ("发布完成", "submitted")):
+                if await self.page.get_by_text(text, exact=True).first.is_visible():
+                    self.last_publish_status = status
+                    return True
+            # A URL change or a 'publishing' label does not establish acceptance.
+            await asyncio.sleep(0.5)
+        try:
+            await self._dump_page_debug(tag="publish_not_verified", include_cookies=False)
+        except Exception:
+            pass
+        raise PublicationNeedsReview("未能确认发布结果，请到小红书人工核验，不要自动重发")
+
     async def post_article(self, title, content, images=None, auto_publish: bool = False):
         """发布文章
         Args:
@@ -1627,6 +1666,8 @@ class XiaohongshuPoster:
             images: 图片路径列表
             auto_publish: 是否自动点击最终“发布”按钮（无人值守）
         """
+        self.last_publish_status = "failed"
+        self._submission_attempted = False
         await self.ensure_browser()  # 确保浏览器已初始化
         
         try:
@@ -2451,6 +2492,7 @@ class XiaohongshuPoster:
 
             # 自动/手动发布
             if auto_publish:
+                await self._check_publication_dialogs()
                 print("尝试自动点击“发布”按钮（无人值守）...")
                 publish_success = False
 
@@ -2502,15 +2544,15 @@ class XiaohongshuPoster:
                                 break
                             await asyncio.sleep(0.5)
 
-                        try:
-                            await btn.click(timeout=8000)
-                        except Exception:
-                            if not await try_force_click(btn, f"最终发布按钮 {selector}"):
-                                raise
+                        # A click can reach the server before Playwright times out.
+                        # Never try another selector after any submission attempt.
+                        await self._click_final_publish_button(btn)
                         print(f"已点击最终发布按钮: {selector}")
                         publish_success = True
                         break
                     except Exception as e:
+                        if self._submission_attempted:
+                            raise PublicationNeedsReview("发布按钮已尝试点击，但结果不明，请人工核验，不要重发") from e
                         last_error = e
                         continue
 
@@ -2521,88 +2563,9 @@ class XiaohongshuPoster:
                         pass
                     raise Exception(f"无法找到最终发布按钮: {last_error}")
 
-                # 处理可能出现的“确认发布/确定”等弹窗（常见于二次确认、风控提示等）
-                confirm_selectors = [
-                    # Dialog-scoped selectors first (safer)
-                    "div[role='dialog'] button:has-text('确认发布')",
-                    "div[role='dialog'] button:has-text('确认')",
-                    "div[role='dialog'] button:has-text('确定')",
-                    ".el-dialog button:has-text('确认发布')",
-                    ".el-dialog button:has-text('确认')",
-                    ".el-dialog button:has-text('确定')",
-                    ".ant-modal button:has-text('确认发布')",
-                    ".ant-modal button:has-text('确认')",
-                    ".ant-modal button:has-text('确定')",
-                    # Global fallback (last resort)
-                    "button:has-text('确认发布')",
-                ]
-                for selector in confirm_selectors:
-                    try:
-                        btn = self.page.locator(selector).last
-                        if await btn.count() <= 0:
-                            continue
-                        await btn.wait_for(state="visible", timeout=3000)
-                        await btn.scroll_into_view_if_needed()
-                        try:
-                            await btn.click(timeout=5000)
-                        except Exception:
-                            if not await try_force_click(btn, f"确认弹窗按钮 {selector}"):
-                                raise
-                        print(f"检测到发布确认弹窗，已点击: {selector}")
-                        break
-                    except Exception:
-                        continue
+                return await self._wait_for_publication_result()
 
-                # 尝试等待“发布成功/审核中”等提示，或等待页面跳转
-                success_texts = [
-                    "发布成功",
-                    "发布完成",
-                    "审核中",
-                    "发布中",
-                    "已发布",
-                ]
-                deadline = time.time() + 30
-                while time.time() < deadline:
-                    # 若 401/跳转登录，直接判定失败，避免“误以为发布成功”
-                    try:
-                        if await self._has_blocking_auth_issue():
-                            raise Exception(f"发布过程中登录态异常/跳转登录: {self._auth_issue_url or self.page.url}")
-                    except Exception:
-                        raise
-
-                    for text in success_texts:
-                        try:
-                            if await self.page.locator(f"text={text}").first.is_visible():
-                                print(f"检测到发布状态提示: {text}")
-                                return True
-                        except Exception:
-                            pass
-
-                    # 兜底：发布后常会返回主页/列表页；若 URL 发生变化且不再处于发布页，也认为成功
-                    try:
-                        cur_url = self.page.url or ""
-                        if cur_url and cur_url != initial_url:
-                            lowered = cur_url.lower()
-                            if ("publish" not in lowered) and ("/edit" not in lowered) and ("login" not in lowered):
-                                print(f"检测到发布后页面跳转: {cur_url}")
-                                return True
-                    except Exception:
-                        pass
-
-                    await asyncio.sleep(0.5)
-
-                try:
-                    await self.page.wait_for_load_state("networkidle", timeout=20000)
-                except Exception:
-                    pass
-
-                # 若无法确认结果，按失败处理并保留诊断信息，避免无人值守任务“假成功”
-                try:
-                    await self._dump_page_debug(tag="publish_not_verified", include_cookies=False)
-                except Exception:
-                    pass
-                raise RuntimeError("未能在超时时间内确认发布结果，请人工核验发布状态")
-
+            self.last_publish_status = "draft"
             print("文章已准备好，请在浏览器中检查并手动点击发布。")
             return True
             

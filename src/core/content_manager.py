@@ -7,6 +7,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import hashlib
 import mimetypes
+import tempfile
 
 from .logger import logger
 from .config import config
@@ -21,7 +22,8 @@ class ContentItem:
     images: List[str]
     tags: List[str]
     created_at: float
-    status: str = "draft"  # draft, published, failed
+    status: str = "draft"  # draft, queued, publishing, submitted, under_review, unknown, needs_review, failed, published
+    publication_fingerprint: Optional[str] = None
     published_at: Optional[float] = None
     error_message: Optional[str] = None
     
@@ -74,27 +76,37 @@ class ContentManager:
             for content_id, data in contents_data.items():
                 self.contents[content_id] = ContentItem.from_dict(data)
             
+            recovered = False
+            for item in self.contents.values():
+                if item.status in {"queued", "publishing"}:
+                    item.status = "needs_review"
+                    item.error_message = "程序在发布任务完成前退出，请核验平台记录，不要直接重发"
+                    recovered = True
+            if recovered:
+                self._save_contents()
             logger.info(f"已加载 {len(self.contents)} 个内容项")
             
         except Exception as e:
             logger.error(f"加载内容失败: {str(e)}")
-            self.contents = {}
+            # Starting with an empty history would lose duplicate protection.
+            raise
     
     def _save_contents(self):
-        """保存内容到文件"""
+        temporary_path = None
         try:
-            contents_data = {}
-            for content_id, content in self.contents.items():
-                contents_data[content_id] = content.to_dict()
-            
-            with open(self.content_file, 'w', encoding='utf-8') as f:
-                json.dump(contents_data, f, ensure_ascii=False, indent=2)
-            
-            logger.debug(f"已保存 {len(self.contents)} 个内容项")
-            
-        except Exception as e:
-            logger.error(f"保存内容失败: {str(e)}")
-    
+            contents_data = {key: content.to_dict() for key, content in self.contents.items()}
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.storage_dir,
+                                             prefix='.contents-', delete=False) as handle:
+                temporary_path = handle.name
+                json.dump(contents_data, handle, ensure_ascii=False, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, self.content_file)
+        except Exception:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+            raise
+
     def _generate_content_id(self, title: str, content: str) -> str:
         """生成内容ID"""
         text = f"{title}_{content}_{time.time()}"
@@ -326,6 +338,7 @@ class ContentManager:
         
         content_item = self.contents[content_id]
         content_item.status = status
+        content_item.error_message = error_message
         
         if status == "published":
             content_item.published_at = time.time()

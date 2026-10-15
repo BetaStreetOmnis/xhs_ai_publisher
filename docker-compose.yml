@@ -3,12 +3,13 @@ services:
     build: .
     container_name: xhs-ai-publisher-web
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
       XHS_DATA_DIR: /data
       XHS_HEADLESS: "true"
       XHS_WEB_HOST: 0.0.0.0
       XHS_WEB_PORT: "8000"
+      XHS_WEB_API_TOKEN: "${XHS_WEB_API_TOKEN:-}"
       XHS_WEB_DEBUG: "false"
       XHS_WEB_RELOAD: "false"
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright

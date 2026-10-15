@@ -1,13 +1,13 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import Request, FastAPI, HTTPException, UploadFile, File, Form, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import asyncio
 import os
 import json
 import uuid
+import copy
 from pathlib import Path
 import aiofiles
 
@@ -21,11 +21,17 @@ from core.content_manager import ContentManager, ContentItem
 from core.session_manager import SessionManager
 from core.logger import logger
 from core.config import config
+from src.core.services.publication_policy import (
+    BLOCKED_PUBLICATION_STATES, PublicationNeedsReview, publication_fingerprint,
+)
+
+from src.version import __version__
+from src.core.services.web_access import check_web_access
 
 app = FastAPI(
     title="小红书AI发布器",
     description="基于Web的小红书自动发布工具",
-    version="2.0.0"
+    version=__version__
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -33,14 +39,13 @@ STATIC_DIR = BASE_DIR / "static"
 TEMPLATE_DIR = BASE_DIR / "templates"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
-# 配置CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+@app.middleware("http")
+async def protect_api(request: Request, call_next):
+    rejection = check_web_access(request)
+    if rejection is not None:
+        return rejection
+    return await call_next(request)
+
 
 # 全局管理器实例
 browser_manager: Optional[Any] = None
@@ -49,6 +54,8 @@ content_manager: Optional[ContentManager] = None
 session_manager: Optional[SessionManager] = None
 publisher: Optional[XiaohongshuPoster] = None
 runtime_lock = asyncio.Lock()
+publication_lock = asyncio.Lock()
+browser_generation = 0
 
 
 def ensure_basic_managers() -> None:
@@ -85,6 +92,13 @@ async def ensure_browser_runtime() -> None:
 
 
 async def cleanup_browser_runtime() -> None:
+    global browser_generation
+    async with publication_lock:
+        browser_generation += 1
+        await _cleanup_browser_runtime()
+
+
+async def _cleanup_browser_runtime() -> None:
     global browser_manager, auth_manager, publisher
 
     legacy_publisher = publisher
@@ -245,6 +259,13 @@ async def get_status():
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
+    global browser_generation
+    async with publication_lock:
+        browser_generation += 1
+        return await _login(request)
+
+
+async def _login(request: LoginRequest):
     """登录"""
     try:
         ensure_basic_managers()
@@ -279,6 +300,13 @@ async def login(request: LoginRequest):
 
 @app.post("/api/auth/logout")
 async def logout():
+    global browser_generation
+    async with publication_lock:
+        browser_generation += 1
+        return await _logout()
+
+
+async def _logout():
     """登出"""
     try:
         ensure_basic_managers()
@@ -416,6 +444,7 @@ async def list_contents(status: Optional[str] = None, limit: Optional[int] = Non
 @app.post("/api/publish")
 async def publish_content(request: PublishRequest, background_tasks: BackgroundTasks):
     """发布内容"""
+    expected_generation = browser_generation
     try:
         ensure_basic_managers()
         await ensure_browser_runtime()
@@ -455,27 +484,65 @@ async def publish_content(request: PublishRequest, background_tasks: BackgroundT
         if not is_logged_in:
             raise HTTPException(status_code=401, detail="请先登录")
 
-        async def publish_task():
-            try:
-                content_manager.update_content_status(content_id, "publishing")
-                success = await publisher.post_article(
-                    title=content_item.title,
-                    content=content_item.content,
-                    images=content_item.images,
-                    auto_publish=bool(request.auto_publish),
+        # Reserve synchronously after the awaited preflight. No second request
+        # can pass this check while the first is queued or awaiting verification.
+        if content_item.status in BLOCKED_PUBLICATION_STATES:
+            raise HTTPException(status_code=409, detail="稿件已排队、已提交或需要核验，请先检查平台记录")
+        fingerprint = publication_fingerprint(content_item.title, content_item.content, content_item.images)
+        if request.auto_publish:
+            for existing in content_manager.list_contents():
+                if existing.id == content_id or existing.status not in BLOCKED_PUBLICATION_STATES:
+                    continue
+                existing_fingerprint = existing.publication_fingerprint or publication_fingerprint(
+                    existing.title, existing.content, existing.images,
                 )
+                if existing_fingerprint == fingerprint:
+                    raise HTTPException(status_code=409, detail="相同内容已有发布任务或提交记录，请先核验")
+            content_item.publication_fingerprint = fingerprint
+        snapshot = copy.deepcopy(content_item)
+        if not content_manager.update_content_status(content_id, "queued"):
+            raise HTTPException(status_code=409, detail="稿件已被删除，请重新检查")
 
-                if success:
-                    final_status = "published" if request.auto_publish else "draft"
-                    content_manager.update_content_status(content_id, final_status)
-                    logger.info(f"内容发布任务成功: {content_id}, auto_publish={request.auto_publish}")
-                else:
-                    content_manager.update_content_status(content_id, "failed", "发布失败")
-                    logger.error(f"内容发布失败: {content_id}")
-
-            except Exception as e:
-                content_manager.update_content_status(content_id, "failed", str(e))
-                logger.error(f"内容发布异常: {content_id}, {str(e)}", exc_info=True)
+        async def publish_task():
+            async with publication_lock:
+                try:
+                    if expected_generation != browser_generation:
+                        content_manager.update_content_status(content_id, "needs_review", "排队期间登录或浏览器会话发生变化，请核验目标账号")
+                        return
+                    # Login/logout/cleanup share this lock, so the browser cannot
+                    # switch accounts midway through a queued publication.
+                    await ensure_browser_runtime()
+                    if not await auth_manager.is_logged_in():
+                        content_manager.update_content_status(content_id, "needs_review", "登录状态已变化，请重新核验账号")
+                        return
+                    current = content_manager.get_content(content_id)
+                    if current is None or current.status != "queued":
+                        return
+                    if publication_fingerprint(current.title, current.content, current.images) != fingerprint:
+                        content_manager.update_content_status(content_id, "needs_review", "排队期间稿件已修改，请重新核验内容")
+                        return
+                    valid, validation_errors = content_manager.validate_content(snapshot)
+                    if not valid:
+                        raise PublicationNeedsReview("排队期间内容或图片已失效，请重新核验")
+                    content_manager.update_content_status(content_id, "publishing")
+                    success = await publisher.post_article(
+                        title=snapshot.title,
+                        content=snapshot.content,
+                        images=snapshot.images,
+                        auto_publish=bool(request.auto_publish),
+                    )
+                    if not success:
+                        raise PublicationNeedsReview("发布器没有确认结果，请到平台核验")
+                    final_status = getattr(publisher, "last_publish_status", "unknown") if request.auto_publish else "draft"
+                    if final_status not in {"submitted", "under_review", "draft"}:
+                        final_status = "unknown"
+                    message = "请到小红书核验提交及审核结果" if final_status != "draft" else None
+                    content_manager.update_content_status(content_id, final_status, message)
+                    logger.info(f"内容任务结束: {content_id}, status={final_status}")
+                except Exception as error:
+                    needs_review = isinstance(error, PublicationNeedsReview) or getattr(publisher, "_submission_attempted", False)
+                    content_manager.update_content_status(content_id, "needs_review" if needs_review else "failed", str(error))
+                    logger.error(f"内容任务异常: {content_id}", exc_info=True)
 
         background_tasks.add_task(publish_task)
 

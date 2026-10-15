@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 
 from src.config.config import Config
 from src.core.services.llm_service import llm_service
+from src.core.services.chinese_writing_editor import ChineseWritingEditor
 from src.core.ai_integration.api_key_manager import api_key_manager
 from src.core.services.system_image_template_service import system_image_template_service
 from src.core.ui.qt_font import get_ui_font_family
@@ -34,6 +35,7 @@ class SimpleBackendConfigPage(QWidget):
         "Anthropic（Claude）": "https://api.anthropic.com/v1/messages",
         "阿里云（通义千问）": "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         "月之暗面（Kimi）": "https://api.moonshot.cn/v1/chat/completions",
+        "Kimi Code（会员套餐）": "https://api.kimi.com/coding/v1/chat/completions",
         "字节跳动（豆包）": "https://ark.cn-beijing.volces.com/api/v3/chat/completions",
         "腾讯（混元）": "https://api.lkeap.cloud.tencent.com/v1/chat/completions",
         "本地模型": "http://localhost:1234/v1/chat/completions"
@@ -45,7 +47,8 @@ class SimpleBackendConfigPage(QWidget):
         "智谱（GLM）": "glm-4.5-air",
         "Anthropic（Claude）": "claude-3-5-sonnet-20241022",
         "阿里云（通义千问）": "qwen3-72b-instruct",
-        "月之暗面（Kimi）": "kimi2-latest",
+        "月之暗面（Kimi）": "kimi-k3",
+        "Kimi Code（会员套餐）": "k3-256k",
         "字节跳动（豆包）": "doubao-pro-32k",
         "腾讯（混元）": "hunyuan-turbo",
         "本地模型": "local-model"
@@ -439,6 +442,9 @@ class SimpleBackendConfigPage(QWidget):
                 "running": "⏳",
                 "completed": "✅",
                 "failed": "❌",
+                "needs_review": "⚠️",
+                "submitted": "📤",
+                "under_review": "🔎",
             }
 
             for t in tasks:
@@ -455,6 +461,7 @@ class SimpleBackendConfigPage(QWidget):
 
                     st = getattr(t, "status", "pending")
                     icon = status_icon.get(st, "•")
+                    label = {"needs_review": "待核验", "submitted": "已提交", "under_review": "审核中"}.get(st, st)
                     title = (getattr(t, "title", "") or "").strip() or "（无标题）"
                     try:
                         ts = getattr(t, "schedule_time").strftime("%Y-%m-%d %H:%M")
@@ -462,7 +469,7 @@ class SimpleBackendConfigPage(QWidget):
                         ts = str(getattr(t, "schedule_time", ""))
 
                     retry = f"{getattr(t, 'retry_count', 0)}/{getattr(t, 'max_retries', 0)}"
-                    text = f"{icon} {ts} ｜ {user_label} ｜ {title} ｜ {st} ｜ 重试 {retry}"
+                    text = f"{icon} {ts} ｜ {user_label} ｜ {title} ｜ {label} ｜ 失败次数 {retry}"
 
                     item = QListWidgetItem(text)
                     item.setData(Qt.UserRole, str(getattr(t, "task_id", "")))
@@ -559,6 +566,7 @@ class SimpleBackendConfigPage(QWidget):
                 "Anthropic（Claude）",
                 "阿里云（通义千问）",
                 "月之暗面（Kimi）",
+                "Kimi Code（会员套餐）",
                 "字节跳动（豆包）",
                 "腾讯（混元）",
                 "本地模型",
@@ -617,6 +625,17 @@ class SimpleBackendConfigPage(QWidget):
         self.system_prompt.setMinimumHeight(140)
         self.system_prompt.setFont(QFont(get_ui_font_family(), 14))
         self.system_prompt.setPlaceholderText("请输入自定义系统提示词，这将影响AI生成内容的方式...")
+
+        self.chinese_editor_enabled = QCheckBox("生成后单独改一遍文案")
+        self.chinese_editor_enabled.setChecked(True)
+        self.writing_sample = QTextEdit()
+        self.writing_sample.setMinimumHeight(110)
+        self.writing_sample.setPlaceholderText("贴一小段你自己写的文字。留空时沿用本次原稿的语气。")
+        self.writing_sample.setFont(QFont(get_ui_font_family(), 14))
+        self.chinese_editor_enabled.toggled.connect(self.writing_sample.setEnabled)
+        writing_hint = QLabel("普通笔记和海报共用。开启后生成时间会增加，最多多调用模型两次。样本只参考写法。")
+        writing_hint.setWordWrap(True)
+        writing_hint.setStyleSheet("color: #6b7280; font-size: 13px;")
         
         group_layout.addRow("🤖 提供商：", self.model_provider)
         group_layout.addRow("🔑 API密钥：", api_key_row)
@@ -626,6 +645,9 @@ class SimpleBackendConfigPage(QWidget):
         group_layout.addRow("🧩 文案模板：", self.prompt_template)
         group_layout.addRow("", self.prompt_template_desc)
         group_layout.addRow("💬 系统提示：", self.system_prompt)
+        group_layout.addRow("中文审稿：", self.chinese_editor_enabled)
+        group_layout.addRow("参考语气（可选）：", self.writing_sample)
+        group_layout.addRow("", writing_hint)
         
         layout.addWidget(group)
         layout.addStretch()
@@ -1251,6 +1273,10 @@ class SimpleBackendConfigPage(QWidget):
                 self.model_name.setText(self.PROVIDER_MODELS.get(current_provider, ''))
                 
             self.system_prompt.setPlainText(model_config.get('system_prompt', ''))
+            editor = ChineseWritingEditor.from_config(model_config)
+            self.chinese_editor_enabled.setChecked(editor.enabled)
+            self.writing_sample.setPlainText(editor.writing_sample)
+            self.writing_sample.setEnabled(editor.enabled)
 
             # 文案模板
             template_id = (model_config.get('prompt_template') or 'xiaohongshu_default')
@@ -1311,6 +1337,15 @@ class SimpleBackendConfigPage(QWidget):
                 # 留空表示保持加密存储中的 key，不改动
                 api_key_to_save = ""
 
+            previous_model = self.config.get_model_config()
+            advanced = dict(previous_model.get('advanced') or {
+                'temperature': 0.7, 'max_tokens': 1000, 'timeout': 30
+            })
+            if llm_service._is_kimi_k3(self.api_endpoint.text(), self.model_name.text()):
+                if previous_model.get('model_name') != self.model_name.text():
+                    advanced.update(max_tokens=8192, timeout=180, reasoning_effort='high')
+                else:
+                    advanced.setdefault('reasoning_effort', 'high')
             model_config = {
                 'provider': provider,
                 'api_key': api_key_to_save,
@@ -1319,11 +1354,9 @@ class SimpleBackendConfigPage(QWidget):
                 'model_name': self.model_name.text(),
                 'prompt_template': self.prompt_template.currentData(),
                 'system_prompt': self.system_prompt.toPlainText(),
-                'advanced': {
-                    'temperature': 0.7,
-                    'max_tokens': 1000,
-                    'timeout': 30
-                }
+                'chinese_editor_enabled': self.chinese_editor_enabled.isChecked(),
+                'writing_sample': self.writing_sample.toPlainText(),
+                'advanced': advanced
             }
             self.config.update_model_config(model_config)
             

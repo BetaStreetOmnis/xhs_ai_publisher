@@ -2,10 +2,10 @@
 
 <div align="center">
 
-<img src="https://img.shields.io/badge/🐍_Python-3.8+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
+<img src="https://img.shields.io/badge/🐍_Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
 <img src="https://img.shields.io/badge/📄_License-Apache_2.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white" alt="License"/>
 <img src="https://img.shields.io/badge/💻_Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"/>
-<img src="https://img.shields.io/badge/🚀_Version-2.0.0-FF6B35?style=for-the-badge&logo=rocket&logoColor=white" alt="Version"/>
+<img src="https://img.shields.io/badge/🚀_Version-2.0.0--rc.1-FF6B35?style=for-the-badge&logo=rocket&logoColor=white" alt="Version"/>
 
 <br/>
 
@@ -15,34 +15,89 @@
 
 <br/><br/>
 
-<h3>🎨 Smart Content Creation • 🤖 AI-Powered • 📱 One-Click Publishing</h3>
+<h3>A desktop tool for writing and publishing Xiaohongshu posts</h3>
 
 [🇨🇳 简体中文](./readme.md) | [🇺🇸 English](./readme_en.md)
 
 <br/>
 
-![Software Interface](./images/ui.png)
+![Current editor and cover preview](./docs/assets/screenshot_home.png)
 
 </div>
 
 ---
 
+## v2.0.0-rc.1 redesign pre-release · 2026-10-15
+
+This pre-release brings together Chinese editing, 13 curated templates, multi-page image layouts and publication fixes. It is intended for validation; the full real-account publication flow and platform packages still need acceptance testing.
+
+[Downloads and release notes](https://github.com/BetaStreetOmnis/xhs_ai_publisher/releases/tag/v2.0.0-rc.1) · [Validation and known limits](docs/releases/v2.0.0-rc.1.md)
+
+Web access and the Docker host port default to loopback. Remote access requires `XHS_WEB_API_TOKEN` and HTTPS, with `Authorization: Bearer <token>`. Once a token is configured, local API calls also require it. Enter the token in the Web page's service-token field; it stays in page memory. Set a token behind reverse proxies and tunnels too; do not rely on the proxy's client address.
+
+### Publication fixes
+
+- Failed scheduled publications pause the queue. Check the result before arranging another task.
+- Web publications run one at a time. Repeat submissions of the same post or identical content are rejected. Changes to queued text, missing images or a changed login session stop the task.
+- The publish button is attempted once. Dialogs and uncertain results require user verification.
+- “Under review” and “submitted” are recorded separately. URL changes and “publishing” no longer count as completion.
+- Failed hotspot text generation stops the task without publishing fallback text. Submission does not automatically schedule another hotspot post.
+- Interrupted tasks require verification after a restart. Failed record writes prevent publication from starting.
+
 ## 🆕 Jan 6 Update
 
 - 📊 **Hotspot data**: built-in hot lists (Weibo/Baidu/Toutiao/Bilibili), one-click to use as the homepage topic
-- 🪧 **New marketing templates**: pick **Marketing Poster (locally renders 6 images) / Promo Banner / Product Showcase** in “🖼️ Cover Center”
+- 🪧 **New marketing templates**: pick **Marketing Poster (local layout; page count follows the content) / Promo Banner / Product Showcase** in “🖼️ Cover Center”
 - 🖼️ **Preview & download improvements**: open the cover template library and download **cover + content images** directly from the homepage
 - 🎨 **UI flow improvements**: left-side editing with right-side image preview
 
 ## 📖 Project Overview
 
-> **Xiaohongshu AI Publisher** is a powerful automated content creation and publishing tool, specifically designed for content creators on the Xiaohongshu platform.
+A desktop tool for writing Xiaohongshu posts. Enter a topic to generate a draft, then edit the text, choose a cover and create content images in the same interface. You can configure your own model and writing templates. Default prompts follow the supplied material without a minimum word count or a forced engagement ending. Reviews need actual experience notes. If the model is unavailable, the tool previews the original text.
 
-🎯 **Core Values**
-- 🧠 **Smart Creation**: Generate high-quality content with advanced AI technology
-- ⚡ **Efficiency Boost**: One-click operation saves 90% of publishing time
-- 🎨 **Professional Quality**: Beautiful interface design with excellent user experience
-- 🔧 **Complete Features**: Full automation from content generation to publishing
+After drafting, Chinese generation uses the full [humanizer-chinese](https://github.com/jiji262/humanizer-chinese) rules in a separate editing request, then creates content pages from the edited text. This is enabled by default for notes and posters. In Backend Config → AI Model, you can disable it or paste a writing sample to guide the tone. Editing adds one model call, with one retry if the format or basic fact checks fail. If both attempts fail, the app keeps the draft and shows a message. These checks only catch some problems; review generated text before use. See the [Chinese writing notes](docs/chinese-writing.md) for usage, attribution and examples.
+
+New poster drafts follow the supplied material rather than a fixed pain-points/features/audience outline. Covers lead with a concrete use; the body keeps actual operations, limitations and future plans. Portrait screenshots are shown larger without cropping their UI. Review every draft: the model can still misstate features or results.
+
+Add a cover image and ordered body images in Cover Center. Drag body images to reorder them or leave an empty slot. Overflow text continues on another page without repeating the image. Portrait screenshots are displayed larger without cropping their UI. Product introductions retain names explicitly supplied in the source; review every generated draft.
+
+Cover Center now offers 13 selected templates. Three are new: “奶油杂志” (Cream Editorial), “柠檬清单” (Lemon Checklist) and “薄荷纸雕” (Mint Paper). Cream Editorial gives screenshots more space; Lemon Checklist suits steps and lists; Mint Paper pairs green paper illustrations with bold titles. Orange Paper and Screenshot Story are also direct choices in the list. Select a template and click “应用到首页” (Apply to Home) before generating.
+
+![Three new templates](docs/assets/poster-new-curated-20261012.jpg)
+
+Seventeen older choices with similar colors or overlapping uses have been removed from the list. Their files remain available for older drafts. Opening Cover Center maps a retired selection to a retained choice while keeping your image settings. Imported templates are unaffected.
+
+The renderer typesets your own copy for covers and content pages. Long text continues on another page; imported images keep their aspect ratios and do not repeat on overflow pages. These previews use manually prepared Office Town copy and existing app demo images. They do not show newly executed tasks. See the [template guide and asset sources](docs/poster-layouts.md).
+
+It can also fill the publication form, run scheduled tasks and accept local Web/API calls. Publication still has unresolved problems. Start with drafts and previews, then confirm publication on Xiaohongshu. See [usage limits and known issues](#usage-limits-and-known-issues).
+
+---
+
+## Interface and generated images
+
+See the [latest changes and generation checks](docs/poster-refinement-20261011.md) for ordered body images, product-name retention and current results.
+
+We also tested note and poster generation with the same source. The [generation quality audit](docs/generation-quality-audit-20261011.md) keeps original model outputs separate from the edited draft and layout comparison. Review automatic drafts before use.
+
+Screenshots below show the Chinese desktop UI from the local build on October 11, 2026. The editor contains an Office Town introduction to demonstrate editing and layout; it was not submitted to Xiaohongshu.
+
+Edit the source and draft on the left, then browse the cover and content images on the right.
+
+![Draft editing and content image preview](./docs/assets/screenshot_home_content.png)
+
+Choose a layout in the cover library. Sample text in the preview is replaced with your own content when generating images.
+
+![Curated cover template library](./docs/assets/poster-library-curated-20261012.png)
+
+The preview uses Office Town (agentBridge) and cycles through the 13 selected templates, showing each for about 3 seconds.
+
+![Slideshow of 13 selected poster templates](./docs/assets/poster-carousel-curated-20261012.gif)
+
+The seven-image Office Town example covers phone replies, task overview, butler queries, scoped follow-up, history and connection setup. The copy was manually edited and rendered by the current generator using existing app demo screenshots and crops. Follow-up is described as a trial feature.
+
+![Illustrated example shown in sequence](./docs/assets/poster-pages-carousel-20261011.gif)
+
+[View the 13 selected templates](./docs/assets/poster-gallery-curated-20261012.jpg) · [View the illustrated example](./docs/assets/poster-set-20261011.jpg)
 
 ---
 
@@ -60,7 +115,7 @@
 - 📊 **Hotspot Center**: Built-in hot lists (Weibo/Baidu/Toutiao/Bilibili), one-click to use as homepage topic
 - 🔗 **Web Link Import**: Paste a link to import title/content/images (WeChat articles + generic webpages; results depend on the site)
 - 🖼️ **Image Processing**: Smart image matching and processing
-- 🖼️ **Cover/Content Templates**: Choose a template in “🖼️ Cover Center” (including marketing poster/promo banner/product showcase); generation outputs a cover + multiple content images (one-click download)
+- 🖼️ **Cover/Content Templates**: Choose a template in “🖼️ Cover Center” (including Orange Paper, Cream Editorial, Lemon Checklist, Mint Paper and Product Showcase); generation outputs a cover + multiple content images (one-click download)
 - 🏷️ **Tag Recommendations**: Auto-recommend trending tags
 
 </td>
@@ -70,7 +125,7 @@
 - 📱 **One-Click Login**: Quick login with phone number, country-code selection, and manual browser completion when risk control is triggered
 - 🧩 **Import Login State**: Import Xiaohongshu login state from your system Chrome (useful for SMS/QR risk-control flows)
 - 📋 **Content Preview**: Complete preview before publishing
-- ⏰ **Scheduled Publishing (Unattended)**: Task management + publish at the scheduled time (app must stay running and account must be logged in)
+- ⏰ **Scheduled Publishing**: Manage tasks and run them at the scheduled time while the app is running and the account is signed in. Unattended use is currently not recommended; see [usage limits and known issues](#usage-limits-and-known-issues).
 - 💾 **State Saving**: Auto-save login status
 
 </td>
@@ -85,10 +140,10 @@
 </td>
 <td width="50%">
 
-### 🛡️ Security & Stability
+### 🛡️ Local Storage & Logs
 - 🔐 **Data Encryption**: Model API keys are stored locally with encryption by default (`~/.xhs_system/keys.enc`)
-- 📝 **Logging**: Complete operation logging
-- 🔄 **Error Recovery**: Smart error handling and recovery
+- 📝 **Logging**: Record operations and errors for troubleshooting
+- 🔄 **Failure Handling**: Failures require verification and pause following scheduled tasks; there is no automatic retry.
 
 </td>
 </tr>
@@ -98,11 +153,50 @@
 
 ## Use Xiaohongshu AI Publisher from your phone with Codex
 
-Run this tool and Codex on your Mac, then use [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) to continue the same Codex session from your phone. Ask it to write and save a draft, request edits, then explicitly approve publication. Operations run on the Mac.
+Use [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) to continue your Mac's Codex session from your phone. Ask it to write, revise and save drafts. Both Codex and this tool run on the Mac; your phone does not need direct access to the Xiaohongshu service.
 
-This setup uses existing session replies and local APIs. Office Town does not need a direct Xiaohongshu connection. Ordinary butler chat currently queries tasks; Codex performs the operations. The complete workflow still needs physical-device verification, and phone chat has no dedicated draft or image preview screen yet.
+For now, review text on your phone and view images separately, then check the account and confirm publication on Xiaohongshu. Authorizing automatic publication from your phone carries the [known risks below](#usage-limits-and-known-issues). A successful API result does not mean a post passed moderation.
+
+Ordinary butler chat currently queries tasks; Codex performs the operations. The complete phone-to-publication workflow has not passed physical-device verification, and phone chat has no dedicated draft or image preview screen.
 
 [Setup and instructions for Codex](docs/codex-mobile.en.md) · [Read the English README](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) · [Watch the English app demo](https://otterview-labs.github.io/agentBridge/en/?from=xhs-readme-en#demo) · [Download the English video](https://github.com/otterview-labs/agentBridge/releases/download/android-v0.5.53/office-town-mobile-en-landscape.mp4)
+
+---
+
+## Usage limits and known issues
+
+Posts can still be restricted, and accounts can still be muted or banned when using this tool.
+
+For now:
+
+- Use the tool to write drafts and prepare images. Do not turn products you have never used or places you have never visited into personal-experience claims. Check factual sources before posting.
+- Review the text, images and target account in the Xiaohongshu app or creator center, then publish yourself. Avoid unattended posting, bulk AI publication and automated interactions.
+- Declare AI-generated content as the platform requires. A declaration does not replace fact checking, and a manual publication click does not guarantee account safety.
+- After a timeout, check Xiaohongshu for an existing submission before trying again. Stop publication and scheduled tasks when an account warning or violation notice appears. Read the notice and use the platform's appeal process if needed.
+
+Xiaohongshu has published a notice about AI-managed accounts ([full text reproduced by IT Home](https://www.ithome.com/0/927/689.htm)) and warns against fabricated experiences and fake real-world images ([official notice](https://weibo.com/2/detail/5339140690281632)). Running locally, using a phone or calling through Codex does not establish platform approval for the publication method.
+
+<details>
+<summary>What has changed and what remains</summary>
+
+Original reviewed revision: [dc766ff](https://github.com/BetaStreetOmnis/xhs_ai_publisher/commit/dc766ff8151c7a6a7ce4dce90f9bf40562a07f06). The six publication fixes below are included in `v2.0.0-rc.1`, together with Web access protection.
+
+| Problem | Progress | Current behavior |
+| --- | --- | --- |
+| [Retries after an uncertain result](src/core/scheduler/schedule_manager.py#L322) | Fixed | Failures require verification and pause following scheduled tasks. There is no retry after 10 minutes. Arrange a new task after checking the result. |
+| [Web publication has no queue or deduplication](src/web/app.py#L444) | Fixed | Publications run one at a time. Repeat content IDs and identical content requests are rejected. Changes to queued text, missing images or a changed login session stop the task. Only one Web worker is supported. |
+| [Publication status is unreliable](src/core/write_xiaohongshu.py#L1643) | Fixed | Review notices stay under review; success notices mean submitted. URL changes and “publishing” do not establish completion. Check moderation results on the platform. |
+| [Dialogs are confirmed automatically](src/core/write_xiaohongshu.py#L1635) | Fixed | Visible publication dialogs stop the task for the user. After a publication click is attempted, a timeout never triggers another button click. |
+| [Generation errors still lead to fallback posts](src/core/browser.py#L445) | Fixed | Hotspot text generation failures pause the task rather than publishing fixed fallback text. A submitted hotspot task does not automatically schedule the next post. |
+| [Tasks can get stuck after a restart](src/core/scheduler/schedule_manager.py#L131) | Fixed | Interrupted scheduler and Web tasks require verification and are not resent. Records use temporary-file replacement; failed writes prevent dispatch. |
+| Web caller authentication | Added | Loopback-only by default. Remote calls require a configured token. Once set, every API request requires Bearer authentication; cross-origin browser requests are rejected. |
+| Some legacy tests target retired APIs | Partly addressed | Replaced stale content tests and isolated test data. The maintained offline suite passes 191 tests; the complete non-browser run still has 17 failures. See release notes. |
+
+These fixes do not establish content truthfulness or platform approval. Check personal experiences, factual sources, images and AI declarations before publishing. The complete workflow still needs verification on real platform pages.
+
+[Issue #29](https://github.com/BetaStreetOmnis/xhs_ai_publisher/issues/29) reports detection. Without the full penalty notice, affected version and publication logs, the cause remains unknown. These changes cannot promise freedom from penalties.
+
+</details>
 
 ---
 
@@ -146,7 +240,7 @@ This setup uses existing session replies and local APIs. Office Town does not ne
 
 | Component | Version | Description |
 |:---:|:---:|:---:|
-| 🐍 **Python** | `3.8+` | Latest version recommended |
+| 🐍 **Python** | `3.10–3.12` | Python 3.11/3.12 recommended |
 | 🌐 **Chrome** | `Latest` | For browser automation |
 | 💾 **Memory** | `4GB+` | 8GB+ recommended |
 | 💿 **Storage** | `2GB+` | For dependencies and data |
@@ -206,6 +300,7 @@ Recommended container flow:
 3. Run the container in headless mode for publishing
 
 Notes:
+- The default Docker mapping is `127.0.0.1:8000:8000`. Set `XHS_WEB_API_TOKEN` for calls through the Docker network. Remote access, reverse proxies and tunnels require a token and HTTPS. Xiaohongshu login does not authenticate service callers.
 - `docker-compose.yml` enables `XHS_HEADLESS=true` by default
 - If the saved login state expires, headless mode now returns a clear message asking you to refresh the login state in a visible environment first
 - `docker compose ps` shows container health; the health check is based on `/healthz`
@@ -354,6 +449,8 @@ flowchart LR
 
 - Entry: Sidebar “⚙️ Backend Config” → “AI Model”
 - API Key: Saved to `~/.xhs_system/keys.enc` by default (so `settings.json` won’t keep plaintext keys)
+- Kimi: Select “月之暗面（Kimi）” with `kimi-k3` for the regular API, or “Kimi Code（会员套餐）” with `k3-256k` for the subscription endpoint. Keys, endpoints and quotas are separate. Kimi Code can reuse a local Claude Code credential configured for the same service origin; the app identifies itself as its own client.
+- K3 reasons before returning the article. Switching to K3 initially sets an 8192-token budget and a 180-second timeout. Truncated output is reported as an error. The separate editing step makes additional model requests.
 - Prompt Template: Select from the dropdown; template files live in `templates/prompts/`
 - System image templates: Sidebar “⚙️ Backend Config” → “Templates” can select/import (imports external packs into `~/.xhs_system/system_templates` for cross-platform usage)
 - Cover templates: Sidebar “🖼️ Cover Center” applies a template to the homepage; generated images are cached in `~/.xhs_system/generated_imgs/` and can be downloaded from the homepage
@@ -421,7 +518,7 @@ XHS_IMG_BOXED_LIST_CARDS=false
 - [x] ✅ **User Management**: Multi-user switching & local isolation
 - [x] ✅ **Template Library**: Prompt templates + system image template import + cover templates
 - [x] ✅ **Hotspot Center**: Multi-platform hot lists + one-click to homepage topic
-- [x] ✅ **Scheduled Publishing**: Task management + publish at the scheduled time (app must stay running)
+- [x] ✅ **Scheduled Publishing**: Manage and run scheduled tasks while the app stays running. Failures require verification; hotspot tasks no longer automatically repeat.
 - [ ] 🔄 **Performance Analytics**: Stats/analysis panel is still evolving
 - [ ] 🔄 **API Interface**: Open API endpoints
 

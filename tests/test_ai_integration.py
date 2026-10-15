@@ -32,12 +32,11 @@ from src.core.generation.prompt_builder import PromptBuilder
 class TestAPIKeyManager:
     """测试API密钥管理器"""
     
-    def setup_method(self):
-        """每个测试方法前执行"""
+    @pytest.fixture(autouse=True)
+    def isolated_key_store(self, monkeypatch, tmp_path):
+        """Each test gets its own store; never delete the user's credentials."""
+        monkeypatch.setenv("XHS_DATA_DIR", str(tmp_path))
         self.manager = APIKeyManager()
-        # 清理测试数据
-        if os.path.exists(self.manager.keys_file):
-            os.remove(self.manager.keys_file)
     
     def test_add_key(self):
         """测试添加密钥"""

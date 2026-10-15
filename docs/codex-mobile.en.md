@@ -25,6 +25,8 @@ curl --fail --silent --show-error http://127.0.0.1:8000/healthz
 curl --fail --silent --show-error http://127.0.0.1:8000/api/auth/status
 ```
 
+When `XHS_WEB_API_TOKEN` is configured, every `/api/` request needs an `Authorization: Bearer <token>` header, including local calls. Set a token and use HTTPS behind a proxy or tunnel.
+
 A healthy service does not mean the account is signed in. Complete login or any verification challenge on the Mac. Keep both the Mac and the service running.
 
 ## Instructions for Codex
@@ -84,6 +86,6 @@ The existing conversation can return text and paths. A local Mac image path is n
 
 `POST /api/publish` with `auto_publish=false` fills the browser form and leaves confirmation to the computer browser. It does not provide phone-side publication approval. Explicitly authorized automatic publication uses `auto_publish=true`.
 
-After the request is accepted, query the content status. The implementation records `publishing`, `published` or `failed`. Verify the tool output and the actual post as well. Investigate uncertain results before retrying to avoid duplicate posts.
+After the request is accepted, query the content status. The implementation records `queued`, `publishing`, `submitted`, `under_review`, `needs_review`, `unknown` or `failed`. `submitted` means the tool saw a submission notice; `under_review` is still awaiting moderation. Neither establishes moderation approval. Repeated requests return 409. Check the platform record rather than creating another draft ID to resend identical content.
 
-Ordinary butler chat currently has task-query tools only. Codex performs the operations in this workflow. Phone supervision follows up by messaging the original session. Start with manual instructions and publication confirmation, keeping publishing outside broad automatic follow-up goals.
+Ordinary butler chat currently has task-query tools only. Codex performs the operations in this workflow. Phone supervision follows up by messaging the original session. Start with drafts and previews, then confirm publication on Xiaohongshu. Keep publishing outside broad automatic follow-up goals. See [the README](../readme_en.md#usage-limits-and-known-issues) for account risks and fix progress.

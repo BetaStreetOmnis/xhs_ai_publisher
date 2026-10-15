@@ -14,10 +14,12 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtCore import Qt, QUrl, QSize, pyqtSignal
+from PyQt5.QtGui import QFont, QPixmap, QIcon
 from PyQt5.QtWidgets import (
     QFileDialog,
+    QComboBox,
+    QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -25,6 +27,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -107,7 +110,16 @@ class CoverTemplateLibraryTab(QWidget):
         asset_layout.setContentsMargins(0, 0, 0, 0)
         asset_layout.setSpacing(6)
 
-        asset_title = QLabel("🖼️ 营销海报素材（透明 PNG，可选）")
+        self.poster_layout = QComboBox()
+        self.poster_layout.addItem('原有图文排版', '')
+        self.poster_layout.addItem('截图为主：大图与短说明', 'screenshot_story')
+        self.poster_layout.addItem('橙白立体：黑色大标题', 'orange_paper')
+        saved_layout = Config().get_templates_config().get('poster_layout') or ''
+        self.poster_layout.setCurrentIndex(max(0, self.poster_layout.findData(saved_layout)))
+        self.poster_layout.currentIndexChanged.connect(self._save_poster_layout)
+        asset_layout.addWidget(self.poster_layout)
+
+        asset_title = QLabel("封面图片（可选）")
         asset_title.setStyleSheet("color: #111827; font-size: 13px; font-weight: bold;")
         asset_layout.addWidget(asset_title)
 
@@ -139,6 +151,28 @@ class CoverTemplateLibraryTab(QWidget):
         self.marketing_asset_box.setVisible(False)
         right_layout.addWidget(self.marketing_asset_box)
 
+        page_assets_title = QLabel('正文配图（可选）')
+        page_assets_title.setStyleSheet('color: #111827; font-size: 13px; font-weight: bold;')
+        right_layout.addWidget(page_assets_title)
+        page_assets_hint = QLabel('按正文段顺序配图，可拖动排序。长文续页不重复配图；生成后请检查图文是否对应。')
+        page_assets_hint.setWordWrap(True)
+        page_assets_hint.setStyleSheet('color: #374151; font-size: 12px;')
+        right_layout.addWidget(page_assets_hint)
+        self.page_assets_list = QListWidget()
+        self.page_assets_list.setIconSize(QSize(34,34))
+        self.page_assets_list.setMaximumHeight(110)
+        self.page_assets_list.setMinimumHeight(65)
+        self.page_assets_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.page_assets_list.model().rowsMoved.connect(lambda *_: self._save_page_assets())
+        right_layout.addWidget(self.page_assets_list)
+        page_buttons = QHBoxLayout()
+        for label, handler in [('添加图片',self.select_page_assets),('留空一段',self.add_empty_page_asset),('移除选中',self.remove_page_asset)]:
+            button = QPushButton(label)
+            button.clicked.connect(handler)
+            page_buttons.addWidget(button)
+        right_layout.addLayout(page_buttons)
+        self._sync_page_assets_ui()
+
         apply_btn = QPushButton("✅ 应用到首页")
         apply_btn.setStyleSheet(
             "QPushButton { background-color: #FF2442; color: white; border: none; padding: 10px 14px; border-radius: 8px; font-weight: bold; }"
@@ -155,7 +189,11 @@ class CoverTemplateLibraryTab(QWidget):
         clear_btn.clicked.connect(self.clear_selection)
         right_layout.addWidget(clear_btn)
 
-        splitter.addWidget(right)
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QScrollArea.NoFrame)
+        right_scroll.setWidget(right)
+        splitter.addWidget(right_scroll)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 2)
 
@@ -185,6 +223,16 @@ class CoverTemplateLibraryTab(QWidget):
             selected_id = ""
 
         templates = system_image_template_service.list_showcase_templates()
+        from src.core.services.poster_catalog import resolve_template_selection
+        config = Config()
+        settings = dict(config.get_templates_config())
+        available = {t['id']:t for t in templates}
+        replacement = resolve_template_selection(selected_id,settings.get('poster_layout') or '')
+        if selected_id not in available and replacement in available:
+            settings['selected_cover_template_id'] = replacement
+            settings['selected_cover_template_display'] = available[replacement].get('display') or replacement
+            config.update_templates_config(settings)
+            selected_id = replacement
         if not templates:
             empty = QListWidgetItem("（未发现系统模板）")
             empty.setFlags(Qt.NoItemFlags)
@@ -228,7 +276,9 @@ class CoverTemplateLibraryTab(QWidget):
             return
 
         self._current_template = data
-        is_marketing = str(data.get("id") or "").strip() == "showcase_marketing_poster"
+        screenshot_layout = str(data.get('id') or '') == 'showcase_marketing_poster'
+        self.poster_layout.setVisible(screenshot_layout)
+        is_marketing = str(data.get("id") or "").strip().startswith('showcase_') or bool(data.get('is_default'))
         try:
             self.marketing_asset_box.setVisible(is_marketing)
         except Exception:
@@ -238,7 +288,18 @@ class CoverTemplateLibraryTab(QWidget):
         meta = data.get("display") or data.get("id") or "模板"
         category = data.get("category") or ""
         suffix = f" · {category}" if category else ""
-        self.meta_label.setText(f"{meta}{suffix}")
+        self.meta_label.setText(f"{meta}{suffix} · 预览文字仅作排版示例，生成时替换为你的内容")
+
+        layout_id = self.poster_layout.currentData()
+        if screenshot_layout and layout_id in ('screenshot_story', 'orange_paper'):
+            filename = 'poster_orange_preview.png' if layout_id == 'orange_paper' else 'poster_screenshot_preview.png'
+            preview = Path(__file__).resolve().parents[3] / 'assets' / filename
+            if preview.exists():
+                pixmap = QPixmap(str(preview))
+                self.preview_label.setPixmap(pixmap.scaled(420, 420, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                self.preview_label.setText('')
+                self.meta_label.setText('橙白立体 · 大标题与立体素材，生成时使用你的正文和配图' if layout_id == 'orange_paper' else '截图图文 · 图中为办公小镇演示素材，生成时使用你提供的文字和图片')
+                return
 
         # 默认模式：不展示图片预览
         if data.get("is_default") or not data.get("path"):
@@ -262,6 +323,70 @@ class CoverTemplateLibraryTab(QWidget):
     @staticmethod
     def _marketing_asset_dir() -> Path:
         return Path(os.path.expanduser("~")) / ".xhs_system" / "marketing_poster_assets"
+
+    def _sync_page_assets_ui(self):
+        paths = Config().get_templates_config().get('poster_page_asset_paths') or []
+        if not isinstance(paths,list):
+            paths = []
+        self.page_assets_list.clear()
+        for path in paths:
+            item = QListWidgetItem(QIcon(str(path)),Path(path).name if path else '不配图')
+            item.setData(Qt.UserRole,str(path))
+            item.setToolTip(str(path))
+            self.page_assets_list.addItem(item)
+
+    def _save_page_assets(self):
+        paths = [self.page_assets_list.item(i).data(Qt.UserRole) or '' for i in range(self.page_assets_list.count())]
+        config = Config()
+        settings = config.get_templates_config()
+        settings['poster_page_asset_paths'] = paths
+        config.update_templates_config(settings)
+
+    def select_page_assets(self):
+        paths,_ = QFileDialog.getOpenFileNames(self,'选择正文图片',str(self._marketing_asset_dir()),'图片 (*.png *.jpg *.jpeg *.webp)')
+        if not paths:
+            return
+        from PIL import Image
+        copied = []
+        try:
+            directory = self._marketing_asset_dir()
+            directory.mkdir(parents=True,exist_ok=True)
+            for path in paths:
+                with Image.open(path) as image:
+                    image.verify()
+                target = directory/f'page_{uuid.uuid4().hex[:8]}{Path(path).suffix.lower()}'
+                shutil.copy2(path,target)
+                copied.append(target)
+        except Exception as exc:
+            for target in copied:
+                target.unlink(missing_ok=True)
+            QMessageBox.warning(self,'图片未添加',f'无法读取或保存图片：{exc}')
+            return
+        for target in copied:
+            item = QListWidgetItem(QIcon(str(target)),target.name)
+            item.setData(Qt.UserRole,str(target))
+            item.setToolTip(str(target))
+            self.page_assets_list.addItem(item)
+        self._save_page_assets()
+
+    def add_empty_page_asset(self):
+        item = QListWidgetItem('不配图')
+        item.setData(Qt.UserRole,'')
+        self.page_assets_list.addItem(item)
+        self._save_page_assets()
+
+    def remove_page_asset(self):
+        row = self.page_assets_list.currentRow()
+        if row >= 0:
+            self.page_assets_list.takeItem(row)
+            self._save_page_assets()
+
+    def _save_poster_layout(self):
+        config = Config()
+        settings = dict(config.get_templates_config())
+        settings['poster_layout'] = self.poster_layout.currentData() or ''
+        config.update_templates_config(settings)
+        self.on_template_changed(self.template_list.currentItem(), None)
 
     def _load_marketing_asset_path(self) -> str:
         try:
@@ -302,7 +427,7 @@ class CoverTemplateLibraryTab(QWidget):
 
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "选择营销海报素材（透明 PNG）",
+            "选择海报素材（PNG）",
             initial_dir,
             "PNG 图片 (*.png);;所有文件 (*)",
         )

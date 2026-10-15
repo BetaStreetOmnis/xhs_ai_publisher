@@ -24,6 +24,12 @@ from urllib.parse import urlparse
 import requests
 
 from src.config.config import Config
+from src.core.services.writing_guidelines import (
+    NATURAL_WRITING_GUIDELINES, build_writing_guidelines, retain_product_introduction,
+)
+from src.core.services.chinese_writing_editor import (
+    ChineseWritingEditor, group_reviewed_paragraphs, validate_review,
+)
 from src.core.ai_integration.api_key_manager import api_key_manager
 
 
@@ -97,6 +103,27 @@ class LLMService:
         s = (endpoint or "").strip().lower()
         return ("open.bigmodel.cn" in s) or ("bigmodel" in s) or ("zhipu" in s)
 
+    @staticmethod
+    def _is_kimi_code_endpoint(endpoint: str) -> bool:
+        parsed = urlparse(endpoint or "")
+        return (
+            parsed.scheme == "https"
+            and parsed.netloc in {"api.kimi.com", "api.kimi.ai"}
+            and (parsed.path == "/coding" or parsed.path.startswith("/coding/"))
+            and not parsed.query and not parsed.fragment
+        )
+
+    @classmethod
+    def _is_kimi_k3(cls, endpoint: str, model_name: str) -> bool:
+        parsed = urlparse(endpoint or "")
+        return (
+            cls._is_kimi_code_endpoint(endpoint) and model_name in {"k3", "k3-256k"}
+        ) or (
+            parsed.scheme == "https"
+            and parsed.netloc in {"api.moonshot.cn", "api.moonshot.ai"}
+            and model_name == "kimi-k3"
+        )
+
     def _load_claude_code_env(self) -> Dict[str, str]:
         """从 Claude Code 配置读取 env（用于复用本机已有模型密钥/代理配置）。"""
         try:
@@ -159,6 +186,19 @@ class LLMService:
         model_config = self._apply_env_model_config_overrides(model_config)
         endpoint = (model_config.get("api_endpoint") or "").strip()
 
+        if self._is_kimi_code_endpoint(endpoint):
+            key = (os.environ.get("KIMI_CODE_API_KEY") or "").strip()
+            if key:
+                return key
+            cc_env = self._load_claude_code_env()
+            # Reuse only the same Kimi Code origin, never a different provider's token.
+            saved_endpoint = (cc_env.get("ANTHROPIC_BASE_URL") or "").strip()
+            if (self._is_kimi_code_endpoint(saved_endpoint)
+                    and urlparse(saved_endpoint).netloc == urlparse(endpoint).netloc):
+                return (cc_env.get("ANTHROPIC_AUTH_TOKEN")
+                        or cc_env.get("ANTHROPIC_API_KEY") or "").strip()
+            return ""
+
         # BigModel（智谱 GLM）常用于 OpenAI-compatible 端点；
         # 若本机已配置 Claude Code（~/.claude/settings.json），优先复用其中的 token，避免被 OPENAI_API_KEY 干扰。
         if self._is_bigmodel_endpoint(endpoint) or ("glm" in provider_lower) or ("智谱" in provider):
@@ -211,7 +251,9 @@ class LLMService:
         if "dashscope" in endpoint_lower or "qwen" in provider_lower or "通义" in provider or "阿里" in provider:
             return os.environ.get("DASHSCOPE_API_KEY", "") or os.environ.get("XHS_LLM_API_KEY", "") or ""
         if "moonshot" in endpoint_lower or "kimi" in provider_lower or "月之暗面" in provider:
-            return os.environ.get("MOONSHOT_API_KEY", "") or os.environ.get("XHS_LLM_API_KEY", "") or ""
+            return (os.environ.get("MOONSHOT_API_KEY", "")
+                    or os.environ.get("KIMI_API_KEY", "")
+                    or os.environ.get("XHS_LLM_API_KEY", "") or "")
         if "volces" in endpoint_lower or "doubao" in provider_lower or "豆包" in provider or "字节" in provider or "火山" in provider:
             return (
                 os.environ.get("ARK_API_KEY", "")
@@ -283,12 +325,15 @@ class LLMService:
         )
 
         messages: List[Dict[str, str]] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
+        system = f"{system_prompt}\n\n{build_writing_guidelines(model_config)}".strip()
+        messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user_prompt})
 
         raw_text = self._call_model(model_config, messages)
         parsed = self._try_parse_json(raw_text)
+        if isinstance(parsed, dict):
+            parsed = self._review_generated_copy(model_config, topic, parsed, 'full_content', 'content_pages')
+            parsed = retain_product_introduction(topic, parsed, 'full_content', 'content_pages')
 
         title, content = self._extract_title_content(topic, header_title, author, raw_text, parsed)
         return LLMResponse(title=title, content=content, raw_text=raw_text, raw_json=parsed)
@@ -321,42 +366,40 @@ class LLMService:
 
         system_prompt = (model_config.get("system_prompt") or "").strip()
         extra_system = (
-            "你是一位小红书营销海报文案策划，输出适合直接排版到海报上的短句文案。"
+            "根据作者提供的素材编辑小红书图文，提炼具体用途并保留作者的口吻。"
             "严格只返回 JSON 对象，不要输出解释、不要 markdown、不要 emoji。"
         )
-        system = (system_prompt + "\n\n" + extra_system).strip() if system_prompt else extra_system
+        system = "\n\n".join(filter(None, [system_prompt, extra_system, build_writing_guidelines(model_config)]))
 
         user = f"""
-为「{topic}」生成一套 6 张营销海报（同一套风格），用于小红书发布。
+根据以下素材整理小红书图文，保留原稿语气与事实，不要求凑满六页。
+素材：
+{topic}
 
-要求：
-- 绝对不要 emoji、不要 markdown、不要解释说明。
-- 每行尽量短，适合放在图片上。
-- 条目式内容要精炼，有行动引导。
+编辑要求：
+- 封面优先写素材中最具体的操作能力，让读者一眼看出能拿来做什么；起因放进正文。不要用“信息太多、管理太难”这样的背景问题代替已有用途，也不要只用产品名或“我的小项目”。
+- 正文先写成一篇连贯的介绍，再按内容分页。原稿有作者起因和使用过程时，保留它的叙述顺序，允许从起因开始；不强行改成逐项介绍功能。沿用作者的词和口头表达，不能增加亲测经历、场景细节、效果或功能，不添加自创体验总结。
+- 标题通常8–16字，最多20字。用一个具体动作的顺口短句；不把几种能力挤到同一句。副标题最多40字，可以留空，正文自然交代产品名字。
+- pages沿用审过的完整正文，按文章的阅读顺序分段；不为图片另外生成一套说法。一页可以保留相关的几个自然段，标题简单交代内容，也可以留空。不套“内容一览、痛点、亮点、适合人群”这些栏目。
+- 内容足够时可分2–5个正文页，每页通常约60–120字；完整自然段更长时可保留，由排版器续页。相关操作和条件连着讲，不为每个功能硬凑一页。短素材用一页也可以，长素材增加页数以保留事实。
+- 页标题通常6–14字，写一句自然的话，不用“如何：查、拟、交”这种格式。正文按意思分段，避免一个长段把几种操作连起来。
+- caption是完整发布正文，不能只返回开头一句。当前功能、使用限制和后续计划都要保留，图片与caption的说法一致。
+- 步骤只有原稿明确提供时才写。用户问了管家才回答，不能说主动提醒；后续打算不能说成现有能力。
+- 原稿没有的价格、人群、私信领取、购买和交付承诺不要补写。不要emoji或Markdown。
+- 写作约束用于核对，不是正文内容。不要把“不能主动提醒、没有实时监控”等提示里的例子写进稿子；只有素材自己明确说到的限制才保留。每句话都要在素材里找到依据，包括小标题和副标题。
+- 若用户明确要求只改错字或保留全文，遵循用户的编辑范围。
 
-如果用户提供以下信息，请原样使用，不要自作主张改写/编造：
-- 价格 price：\"{price_text}\"
-- 私信关键词 keyword：\"{keyword_text}\"
-
-请返回 JSON，字段如下：
+以下附加信息若提供，原样保留：price="{price_text}"；keyword="{keyword_text}"。
+返回严格JSON：
 {{
-  "title": "主标题（短句）",
-  "subtitle": "副标题（一句）",
-  "price": "价格数字或文本（未知可为空字符串）",
-  "keyword": "私信关键词（没有就用“咨询”）",
-  "accent": "blue|purple|orange|red",
-  "cover_bullets": ["卖点1","卖点2","卖点3"],
-  "outline_items": ["要点1","要点2","要点3","要点4","要点5","要点6","要点7","要点8"],
-  "highlights": [{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}},{{"title":"亮点","desc":"说明"}}],
-  "delivery_steps": ["步骤1","步骤2","步骤3"],
-  "pain_points": ["痛点1","痛点2","痛点3","痛点4"],
-  "audience": [
-    {{"badge":"工","title":"适合人群1","bullets":["要点","要点"]}},
-    {{"badge":"产","title":"适合人群2","bullets":["要点","要点"]}},
-    {{"badge":"面","title":"适合人群3","bullets":["要点","要点"]}}
-  ],
-  "caption": "可选：发布配文（纯文本）",
-  "disclaimer": "一行免责声明（纯文本）"
+  "title": "封面切入点",
+  "subtitle": "补充一句或留空",
+  "price": "提供的价格或空字符串",
+  "keyword": "提供的关键词或空字符串",
+  "pages": [{{"title": "这一页具体讲什么", "body": "自然段正文，用\\n\\n分段"}}],
+  "caption": "完整发布正文",
+  "cta": "仅使用原稿明确要求的行动引导，否则留空",
+  "disclaimer": "原稿已有声明或空字符串"
 }}
 """.strip()
 
@@ -380,6 +423,9 @@ class LLMService:
             fallback["__error"] = "模型返回无法解析为 JSON"
             return fallback
 
+        data = self._review_generated_copy(model_config, topic, data, 'caption', 'pages')
+        data = retain_product_introduction(topic, data, 'caption', 'pages')
+
         def _to_str(v: Any) -> str:
             return str(v).strip() if v is not None else ""
 
@@ -394,82 +440,48 @@ class LLMService:
         if price_text:
             out_price = price_text
 
-        out_keyword = _clean(data.get("keyword")) or "咨询"
+        out_keyword = _clean(data.get("keyword"))
         if keyword_text:
             out_keyword = keyword_text
 
-        def _norm_list(val: Any, *, min_items: int, max_items: int, fallback: List[str]) -> List[str]:
-            items: List[str] = []
-            if isinstance(val, list):
-                for x in val:
-                    s = _clean(x)
-                    if s:
-                        items.append(s)
-            items = items[:max_items]
-            while len(items) < min_items and len(items) < max_items:
-                items.append(fallback[len(items) % len(fallback)])
-            return items
+        def _norm_list(value: Any) -> List[str]:
+            if not isinstance(value, list):
+                return []
+            return [cleaned for item in value if (cleaned := _clean(item))]
 
-        cover_bullets = _norm_list(
-            data.get("cover_bullets"),
-            min_items=3,
-            max_items=3,
-            fallback=["核心卖点 1", "核心卖点 2", "核心卖点 3"],
-        )
-        outline_items = _norm_list(
-            data.get("outline_items"),
-            min_items=8,
-            max_items=10,
-            fallback=["要点概览", "功能说明", "适用场景", "交付方式", "注意事项"],
-        )
-
+        cover_bullets = _norm_list(data.get("cover_bullets"))
+        outline_items = _norm_list(data.get("outline_items"))
         highlights: List[Dict[str, str]] = []
         if isinstance(data.get("highlights"), list):
             for item in data["highlights"]:
-                if not isinstance(item, dict):
-                    continue
-                h_title = _clean(item.get("title")) or "亮点"
-                h_desc = _clean(item.get("desc") or item.get("description")) or ""
-                highlights.append({"title": h_title, "desc": h_desc})
-        while len(highlights) < 4:
-            idx = len(highlights) + 1
-            highlights.append({"title": f"亮点 {idx}", "desc": "一句话说明它能解决什么问题"})
-        highlights = highlights[:4]
-
-        delivery_steps = _norm_list(
-            data.get("delivery_steps"),
-            min_items=3,
-            max_items=3,
-            fallback=["下单购买", "确认需求/领取资料", "开始使用/复盘优化"],
-        )
-        pain_points = _norm_list(
-            data.get("pain_points"),
-            min_items=4,
-            max_items=4,
-            fallback=["不知道从哪开始", "信息太碎不好整理", "做完效果不稳定", "缺少可复用模板"],
-        )
-
+                if isinstance(item, dict):
+                    h_title = _clean(item.get("title"))
+                    h_desc = _clean(item.get("desc") or item.get("description"))
+                    if h_title or h_desc:
+                        highlights.append({"title": h_title, "desc": h_desc})
+        delivery_steps = _norm_list(data.get("delivery_steps"))
+        pain_points = _norm_list(data.get("pain_points"))
         audience: List[Dict[str, Any]] = []
         if isinstance(data.get("audience"), list):
             for item in data["audience"]:
-                if not isinstance(item, dict):
-                    continue
-                badge = _clean(item.get("badge"))[:1] or "A"
-                a_title = _clean(item.get("title")) or "适合人群"
-                bullets = _norm_list(
-                    item.get("bullets"),
-                    min_items=2,
-                    max_items=3,
-                    fallback=["痛点清晰", "希望快速上手", "需要可复制模板"],
-                )
-                audience.append({"badge": badge, "title": a_title, "bullets": bullets})
-        while len(audience) < 3:
-            idx = len(audience) + 1
-            audience.append({"badge": str(idx), "title": f"人群 {idx}", "bullets": ["痛点清晰", "希望快速上手"]})
-        audience = audience[:3]
+                if isinstance(item, dict):
+                    a_title = _clean(item.get("title"))
+                    bullets = _norm_list(item.get("bullets"))
+                    if a_title or bullets:
+                        audience.append({"title": a_title, "bullets": bullets})
+
+        pages = []
+        for item in data.get("pages") or []:
+            if isinstance(item, dict) and (body := _clean(item.get("body"))):
+                pages.append({"title": _clean(item.get("title")), "body": body})
 
         caption = _clean(data.get("caption"))
-        disclaimer = _clean(data.get("disclaimer")) or "仅供参考｜请遵守平台规则"
+        disclaimer = _clean(data.get("disclaimer"))
+        # Keep only a disclaimer the author actually supplied. Models sometimes
+        # echo their own compliance checklist into this optional display field.
+        declaration_words = ('声明', '仅供参考', '不构成', 'AI 辅助', 'AI辅助', '版权', '风险提示')
+        if disclaimer and (disclaimer not in topic or not any(word in disclaimer for word in declaration_words)):
+            disclaimer = ''
 
         return {
             "title": title,
@@ -477,6 +489,7 @@ class LLMService:
             "price": out_price,
             "keyword": out_keyword,
             "accent": accent,
+            "pages": pages,
             "cover_bullets": cover_bullets,
             "outline_items": outline_items,
             "highlights": highlights,
@@ -484,41 +497,65 @@ class LLMService:
             "pain_points": pain_points,
             "audience": audience,
             "caption": caption,
+            "cta": _clean(data.get("cta")),
             "disclaimer": disclaimer,
             "__source": "llm",
+            "writing_review": data.get('writing_review', {}),
         }
+
+    def _review_generated_copy(self, model_config, source, data, body_key, pages_key):
+        """Edit separately, retry one rejected revision, otherwise keep the draft."""
+        result = dict(data)
+        editor = ChineseWritingEditor.from_config(model_config)
+        body = result.get(body_key)
+        if not editor.enabled or not isinstance(body, str) or not body.strip():
+            return result
+        if re.search(r'只改错字|仅改错字|不要改写|保留全文|原样保留', source):
+            return result
+        try:
+            path = self._get_prompt_templates_dir().parent / 'writing' / 'humanizer-chinese.md'
+            skill = path.read_text(encoding='utf-8')
+            messages = editor.review_messages(skill, source, body)
+            for attempt in range(2):
+                raw = self._call_model(model_config, messages)
+                try:
+                    title, paragraphs = validate_review(source, self._try_parse_json(raw))
+                    break
+                except ValueError as error:
+                    if attempt:
+                        raise
+                    messages = messages + [
+                        {'role': 'assistant', 'content': raw},
+                        {'role': 'user', 'content': '上版未通过核对：' + str(error) + '。请对照原始素材修正，再返回同样的JSON。不能增加场景、体验或功能，也不能遗漏原始信息。'},
+                    ]
+            result['title'] = title
+            result[body_key] = '\n\n'.join(paragraphs)
+            groups = group_reviewed_paragraphs(paragraphs)
+            result[pages_key] = [{'title': '', 'body': group} for group in groups] if pages_key == 'pages' else groups
+            if body_key == 'full_content':
+                # A stale draft cover must not contradict the edited article.
+                result['image_brief'] = {'cover_heading': title, 'cover_description': ''}
+            else:
+                result['subtitle'] = ''
+                result['cover_bullets'] = []
+            result['writing_review'] = {'status': 'edited', 'message': '已完成中文改稿；请核对内容', 'attempts': attempt + 1}
+        except Exception:
+            # Do not expose provider exception bodies or discard a usable draft.
+            result['writing_review'] = {'status': 'failed', 'message': '中文改稿未完成，当前保留初稿；请检查后再用'}
+        return result
 
     @staticmethod
     def _generate_default_marketing_poster_content(topic: str, *, price: str = "", keyword: str = "") -> Dict[str, Any]:
-        title = (topic or "营销海报").strip()
-        if len(title) > 18:
-            title = title[:18]
-
-        keyword_text = (keyword or "").strip() or "咨询"
-        price_text = (price or "").strip()
+        # Preview the supplied source when the model is unavailable; invented
+        # selling points must not appear in a publishable draft.
+        source = (topic or "").strip()
+        title = source.splitlines()[0][:18] if source else "未命名海报"
         return {
-            "title": title or "营销海报",
-            "subtitle": "一套看懂卖点与交付路径",
-            "price": price_text,
-            "keyword": keyword_text,
-            "accent": "blue",
-            "cover_bullets": ["核心卖点清晰", "交付路径明确", "适合快速上手"],
-            "outline_items": ["你会拿到什么", "关键卖点", "适合人群", "交付方式", "注意事项", "常见问题", "案例/示例", "下一步行动"],
-            "highlights": [
-                {"title": "系统化", "desc": "从需求到交付，路径清晰不绕弯"},
-                {"title": "可复用", "desc": "模板/清单可直接复制修改"},
-                {"title": "可落地", "desc": "按步骤执行，减少试错成本"},
-                {"title": "可迭代", "desc": "持续更新优化，长期可用"},
-            ],
-            "delivery_steps": ["下单购买", "私信发放/确认交付", "开始使用并持续优化"],
-            "pain_points": ["不知道从哪开始", "信息太碎不好整理", "做完效果不稳定", "缺少可复用模板"],
-            "audience": [
-                {"badge": "工", "title": "执行/交付", "bullets": ["想更快做出结果", "需要可复制模板"]},
-                {"badge": "产", "title": "负责人/产品", "bullets": ["需要路线图", "关注成本与风险"]},
-                {"badge": "面", "title": "学习/备面", "bullets": ["希望系统复习", "用题库自测"]},
-            ],
-            "caption": f"这是一套关于「{topic}」的营销海报，想看示例/细节欢迎私信。",
-            "disclaimer": "仅供参考｜请遵守平台规则",
+            "title": title, "subtitle": "", "price": (price or "").strip(),
+            "keyword": (keyword or "").strip(), "accent": "blue",
+            "cover_bullets": [], "outline_items": [], "highlights": [],
+            "delivery_steps": [], "pain_points": [], "audience": [],
+            "caption": source, "cta": "", "disclaimer": "",
         }
 
     def list_prompt_templates(self) -> List[PromptTemplate]:
@@ -549,23 +586,26 @@ class LLMService:
     def build_prompt_from_template(self, template_id: str, topic: str, header_title: str, author: str) -> str:
         tpl = self.get_prompt_template(template_id)
         if not tpl:
-            return self._build_xiaohongshu_prompt(topic, header_title, author)
-
-        return self._render_template(
-            tpl.user_prompt,
-            {
-                "topic": (topic or "").strip(),
-                "header_title": (header_title or "").strip(),
-                "author": (author or "").strip(),
-            },
-        ).strip()
+            prompt = self._build_xiaohongshu_prompt(topic, header_title, author)
+        else:
+            prompt = self._render_template(
+                tpl.user_prompt,
+                {
+                    "topic": (topic or "").strip(),
+                    "header_title": (header_title or "").strip(),
+                    "author": (author or "").strip(),
+                },
+            ).strip()
+        return f"{prompt}\n\n{NATURAL_WRITING_GUIDELINES}"
 
     def _render_template(self, template_text: str, mapping: Dict[str, str]) -> str:
         """简单模板渲染：将 {{key}} 替换为值，避免与 JSON 花括号冲突。"""
-        rendered = template_text or ""
-        for key, value in mapping.items():
-            rendered = rendered.replace(f"{{{{{key}}}}}", value)
-        return rendered
+        # Render once so placeholder-looking text inside source material stays literal.
+        return re.sub(
+            r"\{\{(topic|header_title|author)\}\}",
+            lambda match: mapping.get(match.group(1), match.group(0)),
+            template_text or "",
+        )
 
     def _get_prompt_templates_dir(self) -> Path:
         """获取 prompt 模板目录。"""
@@ -630,9 +670,9 @@ class LLMService:
 {extra}
 
 要求：
-1. 标题：10-20字，吸引人，贴近小红书风格（可适度口语化）
-2. 正文：400-700字，分段清晰；包含3-6条要点（可用列表）；结尾要有互动引导
-3. 话题标签：给出5-10个相关 #话题 标签
+1. 标题：20字以内，概括具体内容，不夸张；短素材可以用短标题
+2. 正文：最多700字，按素材的信息量写；不用凑字数、要点数量或互动结尾
+3. 话题标签：0-5个，只写与素材直接相关的 #话题
 4. 返回“严格 JSON”，不要使用 ``` 包裹，不要输出多余解释文字
 
 返回 JSON 格式（字段允许扩展，但至少包含这些）：
@@ -640,12 +680,10 @@ class LLMService:
   "title": "标题",
   "full_content": "完整正文（不含话题标签也可以）",
   "content_pages": [
-    "# 第1页标题\\n\\n正文...",
-    "# 第2页标题\\n\\n正文...",
-    "# 第3页标题\\n\\n正文..."
+    "# 页面标题\\n\\n本页正文（按正文信息量分1-3页，不补造内容）"
   ],
   "hashtags": ["#话题1", "#话题2"],
-  "call_to_action": "互动引导（可为空）"
+  "call_to_action": ""
 }}
 """.strip()
 
@@ -747,6 +785,18 @@ class LLMService:
             "stream": False,
         }
 
+        if self._is_kimi_code_endpoint(url):
+            headers["User-Agent"] = "xhs-ai-publisher/local-client"
+        is_kimi_k3 = self._is_kimi_k3(url, model_name)
+        if is_kimi_k3:
+            # K3 fixes temperature at 1.0 and includes reasoning in the output budget.
+            payload.pop("temperature")
+            payload["max_completion_tokens"] = payload.pop("max_tokens")
+            effort = (model_config.get("advanced") or {}).get("reasoning_effort", "high")
+            if effort not in {"low", "high", "max"}:
+                raise LLMServiceError("Kimi K3 思考强度只能为 low、high 或 max")
+            payload["reasoning_effort"] = effort
+
         try:
             resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
         except requests.exceptions.RequestException as e:
@@ -767,6 +817,8 @@ class LLMService:
             if not choices:
                 raise KeyError("choices")
             first = choices[0] or {}
+            if is_kimi_k3 and first.get("finish_reason") == "length":
+                raise LLMServiceError("Kimi K3 输出被截断，请增大最大 Token 数后再试")
             message = first.get("message") or {}
             content = message.get("content")
             if content:
@@ -775,6 +827,8 @@ class LLMService:
             # 一些兼容实现可能返回 text
             if first.get("text"):
                 return str(first["text"])
+        except LLMServiceError:
+            raise
         except Exception as e:
             raise LLMServiceError(f"无法解析模型响应: {str(e)}")
 
@@ -1007,7 +1061,7 @@ class LLMService:
     ) -> Tuple[str, str]:
         if not parsed:
             # 没拿到 JSON，直接兜底使用原文
-            title = header_title.strip() or f"{topic.strip()[:18]}..."
+            title = header_title.strip() or topic.strip()[:20]
             return title, raw_text.strip()
 
         title = self._remove_emoji(str(parsed.get("title") or parsed.get("main_title") or header_title or topic).strip())

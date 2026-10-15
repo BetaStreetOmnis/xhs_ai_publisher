@@ -23,7 +23,7 @@ DEFAULT_OUTPUT_DIR = (
 
 
 def _python_supported() -> bool:
-    return (3, 8) <= sys.version_info[:2] < (3, 13)
+    return (3, 10) <= sys.version_info[:2] < (3, 13)
 
 
 def _remove_path(path: Path) -> None:
@@ -133,13 +133,13 @@ def main() -> int:
     if not _python_supported() and not parsed.dry_run:
         print(
             f"Unsupported Python: {sys.version.split()[0]}. "
-            "Use Python 3.8-3.12 for this project, preferably 3.11/3.12.",
+            "Use Python 3.10-3.12 for this project, preferably 3.11/3.12.",
             file=sys.stderr,
         )
         return 2
     if not _python_supported() and parsed.dry_run:
         print(
-            f"Warning: current Python is {sys.version.split()[0]}; real builds require Python 3.8-3.12.",
+            f"Warning: current Python is {sys.version.split()[0]}; real builds require Python 3.10-3.12.",
             file=sys.stderr,
         )
 

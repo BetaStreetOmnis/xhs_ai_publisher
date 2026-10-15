@@ -3,12 +3,13 @@ import json
 from typing import Dict, Optional
 from cryptography.fernet import Fernet
 import base64
+from src.core.services.runtime_paths import get_data_dir
 
 class APIKeyManager:
     """用户API密钥管理器 - 本地加密存储"""
     
     def __init__(self):
-        self.keys_dir = os.path.expanduser('~/.xhs_system')
+        self.keys_dir = str(get_data_dir())
         self.keys_file = os.path.join(self.keys_dir, 'keys.enc')
         self._ensure_keys_dir()
         self._init_encryption()

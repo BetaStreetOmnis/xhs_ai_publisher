@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import time
+import tempfile
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import logging
@@ -117,7 +118,7 @@ class ScheduleManager(QObject):
         self.timer.timeout.connect(self.check_tasks)
         
         # 配置文件路径
-        self.config_dir = os.path.expanduser('~/.xhs_system')
+        self.config_dir = os.getenv('XHS_DATA_DIR', '').strip() or os.path.expanduser('~/.xhs_system')
         self.tasks_file = os.path.join(self.config_dir, 'schedule_tasks.json')
         
         # 确保目录存在
@@ -134,18 +135,33 @@ class ScheduleManager(QObject):
                 with open(self.tasks_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.tasks = [ScheduleTask.from_dict(task_data) for task_data in data]
+                recovered = False
+                for task in self.tasks:
+                    if task.status == "running":
+                        task.status = "needs_review"
+                        task.error_message = "程序在任务执行中退出，请先到小红书核验结果，不会自动重发"
+                        recovered = True
+                if recovered:
+                    self.save_tasks()
                 logging.info(f"已加载 {len(self.tasks)} 个定时任务")
         except Exception as e:
             logging.error(f"加载定时任务失败: {str(e)}")
     
     def save_tasks(self):
-        """保存定时任务"""
+        """Persist before dispatch; an interrupted write must not erase tasks."""
+        temporary_path = None
         try:
-            with open(self.tasks_file, 'w', encoding='utf-8') as f:
-                json.dump([task.to_dict() for task in self.tasks], 
-                         f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logging.error(f"保存定时任务失败: {str(e)}")
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=self.config_dir,
+                                             prefix='.schedule-', delete=False) as handle:
+                temporary_path = handle.name
+                json.dump([task.to_dict() for task in self.tasks], handle, indent=2, ensure_ascii=False)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, self.tasks_file)
+        except Exception:
+            if temporary_path and os.path.exists(temporary_path):
+                os.unlink(temporary_path)
+            raise
 
     def _copy_task_images(self, task_id: str, images: List[str]) -> List[str]:
         """将任务图片复制到稳定目录，避免后续生成覆盖导致定时任务引用错误图片。"""
@@ -319,32 +335,23 @@ class ScheduleManager(QObject):
         task.error_message = (error_msg or "").strip()
 
         if success:
-            task.retry_count = 0
-            # “跟随热点”任务：发布成功后按 interval_hours 自动滚动到下一次
-            if str(getattr(task, "task_type", "") or "").strip() == "hotspot" and int(getattr(task, "interval_hours", 0) or 0) > 0:
-                task.schedule_time = datetime.now() + timedelta(hours=int(getattr(task, "interval_hours", 0) or 0))
-                task.status = "pending"
-            else:
-                task.status = "completed"
+            # A browser acknowledgement is not moderation approval. Do not roll
+            # hotspot tasks into another unattended publication automatically.
+            task.status = error_msg if error_msg in {"submitted", "under_review"} else "needs_review"
+            task.error_message = "已执行，请到小红书核验提交及审核结果"
             self.task_completed.emit(task.task_id)
-            logging.info(f"任务执行成功: {task.task_id}")
-            self.save_tasks()
-            return
-
-        task.status = "failed"
-        task.retry_count += 1
-
-        if task.retry_count < task.max_retries:
-            # 延迟重试，10分钟后重试
-            task.schedule_time = datetime.now() + timedelta(minutes=10)
-            task.status = "pending"
-            logging.warning(f"任务执行失败，准备重试: {task.task_id} ({task.retry_count}/{task.max_retries})")
         else:
-            self.task_failed.emit(task.task_id, task.error_message or "达到最大重试次数")
-            logging.error(f"任务执行失败: {task.task_id}")
-
+            task.status = "needs_review"
+            task.retry_count += 1
+            task.error_message = task.error_message or "执行结果不明，请人工核验"
+            self.stop_scheduler()
+            for other in self.tasks:
+                if other is not task and other.status in {"pending", "running"}:
+                    other.status = "needs_review"
+                    other.error_message = "其他任务出现异常，后续定时任务已暂停，请核验账号和平台记录"
+            self.task_failed.emit(task.task_id, task.error_message)
         self.save_tasks()
-    
+
     def handle_task_failure(self, task: ScheduleTask, error_msg: str):
         """处理任务失败"""
         logging.error(f"任务 {task.task_id} 失败: {error_msg}")
@@ -375,7 +382,10 @@ class ScheduleManager(QObject):
             'pending': len([t for t in self.tasks if t.status == "pending"]),
             'running': len([t for t in self.tasks if t.status == "running"]),
             'completed': len([t for t in self.tasks if t.status == "completed"]),
-            'failed': len([t for t in self.tasks if t.status == "failed"])
+            'failed': len([t for t in self.tasks if t.status == "failed"]),
+            'needs_review': len([t for t in self.tasks if t.status == "needs_review"]),
+            'submitted': len([t for t in self.tasks if t.status == "submitted"]),
+            'under_review': len([t for t in self.tasks if t.status == "under_review"])
         }
         return stats
     

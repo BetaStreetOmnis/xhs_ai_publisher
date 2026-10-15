@@ -33,10 +33,10 @@ class BackupContentGenerator(QThread):
             print("🔄 主API不可用，使用备用内容生成器...")
             
             # 更新按钮状态
-            self.generate_btn.setText("⏳ 本地生成中...")
+            self.generate_btn.setText("⏳ 原文预览中...")
             self.generate_btn.setEnabled(False)
 
-            # 基于输入内容生成标题和内容（尽量偏小红书风格：短句分段、可直接发布）
+            # 无模型时只预览用户原文，不增加固定文案。
             title = self._generate_title()
             content, content_pages = self._generate_content_and_pages()
             
@@ -58,7 +58,7 @@ class BackupContentGenerator(QThread):
 
             if not cover_image or not content_images:
                 # 生成本地占位图片（离线可用，避免外部图片服务不稳定）
-                cover_image, content_images = self._generate_local_placeholder_images(title, count=random.randint(2, 4))
+                cover_image, content_images = self._generate_local_placeholder_images(title, count=max(1, len(content_pages)))
 
             result = {
                 'title': title,
@@ -68,7 +68,7 @@ class BackupContentGenerator(QThread):
                 'content_pages': content_pages,
                 'input_text': self.input_text,
                 'generator': 'backup',
-                'info_reason': self.info_reason or ''
+                'info_reason': self.info_reason or '模型不可用，当前为原文预览，未生成新文案'
             }
 
             print(f"✅ 备用内容生成成功: {title}")
@@ -84,77 +84,19 @@ class BackupContentGenerator(QThread):
             self.generate_btn.setEnabled(True)
 
     def _generate_title(self):
-        """生成标题"""
-        if not self.header_title:
-            self.header_title = "精彩分享"
-        
-        # 基于输入内容的关键词生成标题
-        keywords = self.input_text.split()[:3]  # 取前3个词作为关键词
-        
-        base = "".join(keywords) if keywords else str(self.input_text or "").strip()
-        base = re.sub(r"\s+", "", base)
-        base = base[:10] if base else "这个话题"
-
-        title_templates = [
-            f"{base}真的有用吗 先看这3点",
-            f"{base}别再踩坑 这份清单够用",
-            f"{base}新手必看 3步就能上手",
-            f"{base}想提升 先把这件事做对",
-            f"{base}怎么做更稳 关键在这里",
-        ]
-
-        title = random.choice(title_templates)
-        # 尽量控制在 15-20 字（中文按字符计）
-        title = title[:20]
-        if len(title) < 15:
-            title = (title + "实用版").strip()[:20]
-        return title
+        """Use a supplied heading or source opening without inventing a headline."""
+        heading = str(self.header_title or "").strip()
+        if heading:
+            return heading[:20]
+        source = str(self.input_text or "").strip()
+        return source.splitlines()[0][:20] if source else "草稿预览"
 
     def _generate_content_and_pages(self):
-        """生成更适合小红书的分段内容 + 图片分页。"""
-        topic = str(self.input_text or "").strip() or "这个话题"
-
-        tips = [
-            f"先把目标说清楚：你想从{topic}得到什么结果",
-            "不要一上来就堆信息，先抓住最关键的 1-2 个点",
-            "把能坚持的动作做成日常，比一次性爆发更有效",
-        ]
-        actions = [
-            "今天就开始：写下你的现状和一个可执行的小目标",
-            "用 7 天做一次复盘：哪里有效，哪里需要调整",
-            "只保留最有效的 2 个习惯，其它先放一放",
-        ]
-
-        tags = [topic, "干货", "实用", "方法"]
-        tags = [t for t in tags if t]
-        # 去重保序
-        seen = set()
-        uniq = []
-        for t in tags:
-            t = re.sub(r"\s+", "", str(t))
-            if not t or t in seen:
-                continue
-            seen.add(t)
-            uniq.append(t)
-        uniq = uniq[:10]
-
-        tags_line = " ".join([f"#{t}" for t in uniq]).strip()
-
-        content = "\n\n".join(
-            [
-                f"关于{topic}，我整理了一个更好上手的思路：",
-                "先看重点：\n" + "\n".join([f"{i+1}. {x}" for i, x in enumerate(tips)]),
-                "你可以这样做：\n" + "\n".join([f"{i+1}. {x}" for i, x in enumerate(actions)]),
-                tags_line,
-            ]
-        ).strip()
-
-        pages = [
-            f"# 先看重点\n\n" + "\n\n".join(tips),
-            f"# 你可以这样做\n\n" + "\n\n".join(actions),
-            f"# 话题标签\n\n" + tags_line,
-        ]
-        pages = [p for p in pages if str(p).strip()]
+        """Keep the source verbatim when no model is available; only paginate it."""
+        content = str(self.input_text or "").strip()
+        if not content:
+            raise ValueError("请输入正文或参考素材后再预览")
+        pages = [content[i:i + 400] for i in range(0, len(content), 400)]
         return content, pages
 
     def _generate_placeholder_image(self, title):

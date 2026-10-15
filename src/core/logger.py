@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from typing import Optional
+from src.core.services.runtime_paths import get_logs_dir
 
 class Logger:
     """统一的日志管理器"""
@@ -17,7 +18,7 @@ class Logger:
     def _setup_handlers(self, log_dir: Optional[str]):
         """设置日志处理器"""
         if log_dir is None:
-            log_dir = os.path.expanduser('~/Desktop')
+            log_dir = str(get_logs_dir())
         
         if not os.path.exists(log_dir):
             os.makedirs(log_dir)

@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   validate:
-    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-22.04"]' || '["self-hosted","Linux","X64","chenhao-140","ubuntu-22.04"]') }}
+    runs-on: ${{ fromJSON((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) && '["ubuntu-22.04"]' || '["self-hosted","Linux","X64","chenhao-ci-x64","ubuntu-22.04"]') }}
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
@@ -59,7 +59,7 @@ jobs:
           - os: ubuntu-22.04
             artifact: linux-x64
 
-    runs-on: ${{ fromJSON((startsWith(matrix.os, 'ubuntu-') && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '["self-hosted","Linux","X64","chenhao-140","ubuntu-22.04"]' || format('["{0}"]', matrix.os)) }}
+    runs-on: ${{ fromJSON((startsWith(matrix.os, 'ubuntu-') && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && '["self-hosted","Linux","X64","chenhao-ci-x64","ubuntu-22.04"]' || format('["{0}"]', matrix.os)) }}
 
     steps:
       - uses: actions/checkout@v4

@@ -80,32 +80,30 @@ def draft(runtime, title="真实项目记录", body="这是准备发布的真实
     return runtime.manager.create_content(title, body)
 
 
-async def enqueue(runtime, content_id, automatic=True):
+async def enqueue(runtime, content_id, automatic=False):
     tasks = BackgroundTasks()
-    result = await runtime.web.publish_content(runtime.web.PublishRequest(content_id=content_id, auto_publish=automatic), tasks)
+    result = await runtime.web.publish_content(runtime.web.PublishRequest(content_id=content_id, auto_publish=automatic, review_confirmed=True, ai_usage="none"), tasks)
     return tasks, result
 
 
 @pytest.mark.asyncio
-async def test_http_rejects_same_content_and_preserves_under_review(runtime):
+async def test_http_manual_fill_stays_draft(runtime):
     content_id = draft(runtime)
-    runtime.poster.last_publish_status = "under_review"
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=runtime.web.app), base_url="http://localhost") as client:
-        response = await client.post("/api/publish", json={"content_id": content_id, "auto_publish": True})
+        response = await client.post("/api/publish", json={"content_id": content_id, "review_confirmed": True, "ai_usage": "none"})
         assert response.status_code == 200
-        repeated = await client.post("/api/publish", json={"content_id": content_id, "auto_publish": True})
-        assert repeated.status_code == 409
         stored = (await client.get(f"/api/content/{content_id}")).json()["data"]
-        assert stored["status"] == "under_review"
+        assert stored["status"] == "draft"
         assert stored["published_at"] is None
     assert len(runtime.poster.calls) == 1
+    assert runtime.poster.calls[0]["auto_publish"] is False
 
 
 @pytest.mark.asyncio
 async def test_http_requires_configured_token_before_publication(runtime, monkeypatch):
     monkeypatch.setenv("XHS_WEB_API_TOKEN", "test-access-token")
     content_id = draft(runtime)
-    payload = {"content_id": content_id, "auto_publish": True}
+    payload = {"content_id": content_id, "auto_publish": False, "review_confirmed": True, "ai_usage": "none"}
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=runtime.web.app), base_url="http://localhost") as client:
         rejected = await client.post("/api/publish", json=payload)
         assert rejected.status_code == 401
@@ -120,7 +118,7 @@ async def test_http_requires_configured_token_before_publication(runtime, monkey
 async def test_two_distinct_http_requests_serialize_browser_calls(runtime):
     first, second = draft(runtime), draft(runtime, title="另一个项目记录")
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=runtime.web.app), base_url="http://localhost") as client:
-        responses = await asyncio.gather(*(client.post("/api/publish", json={"content_id": key, "auto_publish": True})
+        responses = await asyncio.gather(*(client.post("/api/publish", json={"content_id": key, "auto_publish": False, "review_confirmed": True, "ai_usage": "none"})
                                            for key in (first, second)))
     assert all(response.status_code == 200 for response in responses)
     assert len(runtime.poster.calls) == 2
@@ -141,7 +139,7 @@ async def test_queued_request_already_blocks_duplicate(runtime):
 @pytest.mark.asyncio
 async def test_raw_payload_duplicates_are_rejected(runtime):
     tasks = BackgroundTasks()
-    request = runtime.web.PublishRequest(title="实际开发记录", content="项目的实际开发记录", auto_publish=True)
+    request = runtime.web.PublishRequest(title="实际开发记录", content="项目的实际开发记录", auto_publish=False, review_confirmed=True, ai_usage="none")
     await runtime.web.publish_content(request, tasks)
     with pytest.raises(HTTPException) as error:
         await runtime.web.publish_content(request, BackgroundTasks())
@@ -256,7 +254,7 @@ async def test_failed_reservation_write_never_starts_background_task(runtime, mo
     monkeypatch.setattr(runtime.manager, "_save_contents", fail)
     tasks = BackgroundTasks()
     with pytest.raises(HTTPException) as error:
-        await runtime.web.publish_content(runtime.web.PublishRequest(content_id=content_id, auto_publish=True), tasks)
+        await runtime.web.publish_content(runtime.web.PublishRequest(content_id=content_id, auto_publish=False, review_confirmed=True, ai_usage="none"), tasks)
     assert error.value.status_code == 500
     assert not tasks.tasks
     assert not runtime.poster.calls
@@ -304,7 +302,7 @@ def test_scheduler_does_not_repeat_hotspots_after_submission(runtime):
     task = module.ScheduleTask("hot", "body", datetime.now(), task_type="hotspot", interval_hours=2)
     manager.tasks = [task]
     manager.handle_task_result("hot", True, "under_review")
-    assert task.status == "under_review"
+    assert task.status == "needs_review"
     assert not manager.get_pending_tasks()
 
 
@@ -382,20 +380,12 @@ def confirmation_poster(runtime, text="", dialog=False):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("error", [None, TimeoutError("click reached server but timed out")])
-async def test_final_publish_button_is_attempted_only_once(runtime, error):
+async def test_final_publish_button_cannot_be_called_directly(runtime):
     poster = confirmation_poster(runtime)
-    poster._submission_attempted = False
-    button = SimpleNamespace(click=AsyncMock(side_effect=error))
-    if error is None:
+    button = SimpleNamespace(click=AsyncMock())
+    with pytest.raises(PublicationNeedsReview, match="自动提交已停用"):
         await poster._click_final_publish_button(button)
-    else:
-        with pytest.raises(PublicationNeedsReview):
-            await poster._click_final_publish_button(button)
-    with pytest.raises(PublicationNeedsReview):
-        await poster._click_final_publish_button(button)
-    button.click.assert_awaited_once()
-    assert poster.last_publish_status == "unknown"
+    button.click.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -446,3 +436,223 @@ def test_hotspot_model_failure_cannot_return_fallback_payload(runtime, monkeypat
         monkeypatch.setitem(sys.modules, module.__name__, module)
     with pytest.raises(PublicationNeedsReview):
         browser.BrowserThread._build_hotspot_payload_sync({"hotspot_source": "baidu", "use_hotspot_context": False})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"auto_publish": True, "review_confirmed": True, "ai_usage": "none"},
+    {},
+    {"review_confirmed": True},
+    {"review_confirmed": True, "ai_usage": "unknown"},
+    {"review_confirmed": True, "ai_usage": "assisted"},
+])
+async def test_http_rejects_unattended_or_unreviewed_calls_before_io(runtime, payload):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=runtime.web.app), base_url="http://localhost") as client:
+        response = await client.post("/api/publish", json={"title": "标题", "content": "正文", **payload})
+        assert response.status_code == 400
+    runtime.web.ensure_browser_runtime.assert_not_awaited()
+    assert not runtime.manager.list_contents()
+    assert not runtime.poster.calls
+
+
+@pytest.mark.asyncio
+async def test_api_allows_reviewed_ai_draft_for_manual_fill(runtime):
+    tasks = BackgroundTasks()
+    request = runtime.web.PublishRequest(content_id=draft(runtime), review_confirmed=True,
+                                         ai_usage="assisted", ai_disclosure_confirmed=True)
+    result = await runtime.web.publish_content(request, tasks)
+    await tasks()
+    assert result["auto_publish"] is False
+    assert runtime.poster.calls[0]["auto_publish"] is False
+
+
+@pytest.mark.asyncio
+async def test_core_blocks_legacy_autopublish_before_browser_io(runtime, monkeypatch):
+    monkeypatch.setenv("XHS_ENABLE_STEALTH_SCRIPT", "true")
+    monkeypatch.setenv("XHS_ENABLE_FORCE_DOM_ACTIONS", "true")
+    poster = runtime.poster_class.__new__(runtime.poster_class)
+    poster.ensure_browser = AsyncMock()
+    with pytest.raises(PublicationNeedsReview, match="自动提交已停用"):
+        await poster.post_article("标题", "正文", [], auto_publish=True)
+    poster.ensure_browser.assert_not_awaited()
+    assert not poster._allow_force_dom_actions(manual_mode=True)
+
+
+def schedule_manager(runtime):
+    manager = runtime.scheduler.ScheduleManager()
+    manager.stop_scheduler()
+    manager.tasks = []
+    return manager
+
+
+def test_fixed_due_task_reminds_once_and_survives_restart(runtime):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("待核实内容", datetime.now() - timedelta(seconds=1), title="标题")
+    reminded, dispatched = [], []
+    manager.task_reminded.connect(reminded.append)
+    manager.task_execute_requested.connect(dispatched.append)
+    manager.running = True
+    manager.check_tasks()
+    manager.check_tasks()
+    assert reminded == [key]
+    assert not dispatched
+    assert manager.tasks[0].status == "reminded"
+    loaded = runtime.scheduler.ScheduleManager()
+    loaded.stop_scheduler()
+    assert loaded.tasks[0].content == "待核实内容"
+    assert loaded.tasks[0].status == "reminded"
+    assert not loaded.get_pending_tasks()
+
+
+def test_legacy_tasks_migrate_to_single_run_without_account_login(runtime):
+    task = runtime.scheduler.ScheduleTask("legacy", "body", datetime.now(), task_type="hotspot")
+    record = task.to_dict()
+    record.pop("execution_policy")
+    record["interval_hours"] = 2
+    path = runtime.directory / "schedule_tasks.json"
+    path.write_text(json.dumps([record]))
+    manager = runtime.scheduler.ScheduleManager()
+    manager.stop_scheduler()
+    assert manager.tasks[0].interval_hours == 0
+    assert "不会自动发布" in manager.tasks[0].error_message
+    assert json.loads(path.read_text())[0]["execution_policy"] == "reminder_or_draft_v1"
+
+
+def test_hotspot_draft_persists_owned_images_and_sources(runtime):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("", datetime.now(), task_type="hotspot", interval_hours=2)
+    dispatched = []
+    manager.task_execute_requested.connect(dispatched.append)
+    task = manager.tasks[0]
+    manager.execute_task(task)
+    source = runtime.directory / "temporary.png"
+    source.write_bytes(b"image fixture")
+    payload = {"title": "核实前草稿", "content": "数据待核实", "images": [str(source)],
+               "source_url": "https://example.com/source", "hotspot_title": "原始标题",
+               "reference_snippets": [{"url": "https://example.com/story", "snippet": "摘要"}]}
+    manager.handle_draft_result(key, payload)
+    source.unlink()
+    loaded = runtime.scheduler.ScheduleManager()
+    loaded.stop_scheduler()
+    stored = loaded.tasks[0]
+    assert len(dispatched) == 1
+    assert stored.status == "draft_ready"
+    assert stored.interval_hours == 0
+    assert stored.content == "数据待核实"
+    assert stored.source_metadata["review_required"] is True
+    assert stored.source_metadata["source_url"] == payload["source_url"]
+    assert stored.source_metadata["reference_snippets"] == payload["reference_snippets"]
+    from pathlib import Path
+    assert Path(stored.images[0]).read_bytes() == b"image fixture"
+    loaded.clear_completed_tasks()
+    assert loaded.tasks[0].task_id == key
+    assert Path(stored.images[0]).exists()
+    assert not loaded.get_pending_tasks()
+
+
+@pytest.mark.parametrize("payload", [{}, {"content": "草稿", "images": ["/missing.png"]}])
+def test_invalid_hotspot_result_never_signals_saved(runtime, payload):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("", datetime.now(), task_type="hotspot")
+    manager.execute_task(manager.tasks[0])
+    completed = []
+    manager.task_completed.connect(completed.append)
+    manager.handle_draft_result(key, payload)
+    assert not completed
+    assert manager.tasks[0].status == "needs_review"
+
+
+def test_image_copy_failure_does_not_keep_temporary_paths(runtime, monkeypatch):
+    manager = schedule_manager(runtime)
+    source = runtime.directory / "temporary.png"
+    source.write_bytes(b"fixture")
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(runtime.scheduler.shutil, "copy2", fail)
+    with pytest.raises(OSError):
+        manager.add_task("body", datetime.now(), images=[str(source)])
+    assert not manager.tasks
+
+
+def test_deleted_hotspot_task_cannot_be_resurrected(runtime):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("", datetime.now(), task_type="hotspot")
+    manager.execute_task(manager.tasks[0])
+    manager.remove_task(key)
+    manager.handle_draft_result(key, {"content": "late callback"})
+    assert not manager.tasks
+
+
+def test_saved_signal_is_not_emitted_on_storage_failure(runtime, monkeypatch):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("", datetime.now(), task_type="hotspot")
+    manager.execute_task(manager.tasks[0])
+    completed = []
+    manager.task_completed.connect(completed.append)
+    def fail():
+        raise OSError("disk full")
+    monkeypatch.setattr(manager, "save_tasks", fail)
+    manager.handle_draft_result(key, {"content": "draft"})
+    assert not completed
+    assert manager.tasks[0].status == "needs_review"
+
+
+@pytest.mark.asyncio
+async def test_scheduled_worker_only_builds_draft_and_never_creates_poster(runtime, monkeypatch):
+    from src.core.browser import BrowserThread
+    worker = BrowserThread()
+    generated = []
+    worker.scheduled_task_draft_ready.connect(lambda key, payload: generated.append((key, payload)))
+    payload = {"title": "标题", "content": "待核实草稿", "images": []}
+    monkeypatch.setattr(worker, "_build_hotspot_payload_sync", lambda action: payload)
+    await worker._run_scheduled_publish({"task_id": "hot", "task_type": "hotspot"})
+    runtime.application.processEvents()
+    assert generated == [("hot", payload)]
+    assert worker.poster is None
+    generated.clear()
+    await worker._run_scheduled_publish({"task_id": "fixed", "task_type": "fixed"})
+    assert not generated
+    assert worker.poster is None
+
+
+
+def test_late_legacy_acknowledgement_cannot_overwrite_saved_draft(runtime):
+    manager = schedule_manager(runtime)
+    key = manager.add_task("", datetime.now(), task_type="hotspot")
+    manager.execute_task(manager.tasks[0])
+    manager.handle_draft_result(key, {"content": "已保存草稿"})
+    manager.handle_task_result(key, True, "under_review")
+    manager.handle_task_result(key, False, "迟到的错误")
+    assert manager.tasks[0].status == "draft_ready"
+    assert manager.tasks[0].content == "已保存草稿"
+
+
+def test_hotspot_builder_keeps_sources_and_avoids_second_marketing_generation(runtime, monkeypatch):
+    browser = importlib.import_module("src.core.browser")
+    captured = []
+    config = ModuleType("src.config.config")
+    config.Config = lambda: SimpleNamespace(get_title_config=lambda: {})
+    hotspot = ModuleType("src.core.services.hotspot_service")
+    snippets = [{"url": "https://example.com/report", "snippet": "未经核实的摘要"}]
+    hotspot.hotspot_service = SimpleNamespace(
+        fetch=lambda *args, **kwargs: [SimpleNamespace(title="热榜标题", url="https://example.com/list")],
+        fetch_baidu_search_snippets=lambda *args, **kwargs: snippets,
+    )
+    llm = ModuleType("src.core.services.llm_service")
+    def generate(**kwargs):
+        captured.append(kwargs["topic"])
+        return SimpleNamespace(title="待核实标题", content="待核实正文")
+    llm.llm_service = SimpleNamespace(generate_xiaohongshu_content=generate)
+    renderer = ModuleType("src.core.services.system_image_template_service")
+    renderer.system_image_template_service = SimpleNamespace(
+        resolve_showcase_dir=lambda: None, generate_post_images=lambda **kwargs: ("cover.png", []),
+    )
+    for module in (config, hotspot, llm, renderer):
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+    payload = browser.BrowserThread._build_hotspot_payload_sync({"cover_template_id": "showcase_marketing_poster"})
+    assert len(captured) == 1
+    assert "不要编造亲身体验" in captured[0]
+    assert "不确定的信息明确写为待核实" in captured[0]
+    assert payload["content"] == "待核实正文"
+    assert payload["source_url"] == "https://example.com/list"
+    assert payload["reference_snippets"] == snippets

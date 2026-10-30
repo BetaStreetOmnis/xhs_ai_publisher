@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-定时发布任务调度器
-管理定时发布任务的创建、执行和监控
+提醒与热点草稿任务调度器
+到点提醒或生成本地草稿，不登录账号、不提交笔记
 """
 
 import json
@@ -9,6 +9,7 @@ import os
 import shutil
 import time
 import tempfile
+from uuid import uuid4
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import logging
@@ -33,7 +34,7 @@ class ScheduleTask:
         self.task_id = task_id
         self.user_id = user_id
         self.task_type = (task_type or "fixed").strip() or "fixed"
-        self.interval_hours = max(0, int(interval_hours or 0))
+        self.interval_hours = 0  # Legacy intervals never enable unattended recurring generation.
         self.hotspot_source = (hotspot_source or "").strip()
         self.hotspot_rank = max(1, int(hotspot_rank or 1))
         self.use_hotspot_context = bool(use_hotspot_context)
@@ -43,12 +44,14 @@ class ScheduleTask:
         self.title = title
         self.images = images or []
         self.schedule_time = schedule_time
-        self.status = "pending"  # pending, running, completed, failed
+        self.status = "pending"  # pending, running, reminded, draft_ready, needs_review; legacy statuses retained
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
         self.retry_count = 0
         self.max_retries = 3
         self.error_message = ""
+        self.source_metadata = {}
+        self.execution_policy = "reminder_or_draft_v1"
     
     def to_dict(self) -> Dict:
         """转换为字典"""
@@ -72,6 +75,8 @@ class ScheduleTask:
             'retry_count': self.retry_count,
             'max_retries': self.max_retries,
             'error_message': self.error_message,
+            'execution_policy': self.execution_policy,
+            'source_metadata': self.source_metadata,
         }
     
     @classmethod
@@ -98,12 +103,16 @@ class ScheduleTask:
         task.retry_count = data.get('retry_count', 0)
         task.max_retries = data.get('max_retries', 3)
         task.error_message = data.get('error_message', '') or ''
+        task.source_metadata = data.get('source_metadata') or {}
+        if data.get('execution_policy') != task.execution_policy and task.status == 'pending':
+            task.error_message = '旧任务已改为到点提醒或生成一次本地草稿，不会自动发布。'
         return task
 
 
 class ScheduleManager(QObject):
-    """定时发布管理器"""
+    """管理一次性提醒及热点草稿，旧发布任务也遵守此策略。"""
     
+    task_reminded = pyqtSignal(str)
     task_started = pyqtSignal(str)  # 任务开始信号
     task_completed = pyqtSignal(str)  # 任务完成信号
     task_failed = pyqtSignal(str, str)  # 任务失败信号
@@ -135,11 +144,14 @@ class ScheduleManager(QObject):
                 with open(self.tasks_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.tasks = [ScheduleTask.from_dict(task_data) for task_data in data]
-                recovered = False
+                legacy_ids = {item.get("task_id") for item in data if item.get("execution_policy") != "reminder_or_draft_v1"}
+                recovered = bool(legacy_ids)
                 for task in self.tasks:
                     if task.status == "running":
                         task.status = "needs_review"
-                        task.error_message = "程序在任务执行中退出，请先到小红书核验结果，不会自动重发"
+                        task.error_message = ("升级前任务曾在执行，请到小红书核验结果，不会自动重发"
+                                              if task.task_id in legacy_ids else
+                                              "草稿生成期间程序退出。请检查草稿及模型用量，需要继续时重新创建任务。不会自动重试。")
                         recovered = True
                 if recovered:
                     self.save_tasks()
@@ -168,35 +180,17 @@ class ScheduleManager(QObject):
         if not images:
             return []
 
-        safe_images = []
-        for p in images:
-            if isinstance(p, str) and p and os.path.isfile(p):
-                safe_images.append(p)
-
-        if not safe_images:
-            return []
-
+        if any(not isinstance(path, str) or not os.path.isfile(path) for path in images):
+            raise ValueError("任务图片不存在，请重新选择图片")
         root = os.path.join(self.config_dir, "scheduled_assets", task_id)
-        try:
-            os.makedirs(root, exist_ok=True)
-        except Exception as e:
-            logging.warning(f"创建任务图片目录失败: {e}")
-            return safe_images
-
+        os.makedirs(root, exist_ok=True)
         copied: List[str] = []
-        for idx, src in enumerate(safe_images):
-            try:
-                ext = os.path.splitext(src)[1].lower() or ".jpg"
-                if idx == 0:
-                    name = f"cover{ext}"
-                else:
-                    name = f"content_{idx}{ext}"
-                dst = os.path.join(root, name)
+        for idx, src in enumerate(images):
+            ext = os.path.splitext(src)[1].lower() or ".jpg"
+            dst = os.path.join(root, f"image_{idx}{ext}")
+            if os.path.abspath(src) != os.path.abspath(dst):
                 shutil.copy2(src, dst)
-                copied.append(dst)
-            except Exception as e:
-                logging.warning(f"复制任务图片失败: {src} -> {e}")
-                copied.append(src)
+            copied.append(dst)
 
         return copied
 
@@ -216,7 +210,9 @@ class ScheduleManager(QObject):
         page_count: int = 3,
     ) -> str:
         """添加定时任务"""
-        task_id = f"task_{int(time.time())}_{hash(content) % 10000}"
+        if task_type not in {"fixed", "hotspot"}:
+            raise ValueError("任务类型无效，请选择内容提醒或热点草稿")
+        task_id = f"task_{uuid4().hex}"
         stable_images = self._copy_task_images(task_id, images or [])
         task = ScheduleTask(
             task_id,
@@ -280,13 +276,13 @@ class ScheduleManager(QObject):
         if not self.running:
             self.running = True
             self.timer.start(self.check_interval * 1000)  # 转换为毫秒
-            logging.info("定时发布调度器已启动")
+            logging.info("提醒与草稿调度器已启动")
     
     def stop_scheduler(self):
         """停止调度器"""
         self.running = False
         self.timer.stop()
-        logging.info("定时发布调度器已停止")
+        logging.info("提醒与草稿调度器已停止")
     
     def check_tasks(self):
         """检查并执行到期任务"""
@@ -304,19 +300,60 @@ class ScheduleManager(QObject):
                 self.handle_task_failure(task, str(e))
     
     def execute_task(self, task: ScheduleTask):
-        """执行单个任务"""
-        logging.info(f"开始执行任务: {task.task_id}")
-        task.status = "running"
+        """Persist the terminal reminder or generation reservation before any signal."""
+        if task.status != "pending":
+            return
+        if task.task_type not in {"fixed", "hotspot"}:
+            raise ValueError("未知任务类型，任务未执行")
         task.updated_at = datetime.now()
-        
-        self.task_started.emit(task.task_id)
+        if task.task_type == "fixed":
+            task.status = "reminded"
+            task.error_message = "提醒时间已到。请打开内容核对，需要发布时在小红书手动操作。"
+            try:
+                self.save_tasks()
+            except Exception:
+                task.status = "pending"
+                raise
+            self.task_reminded.emit(task.task_id)
+            return
+        task.status = "running"
         self.save_tasks()
+        self.task_started.emit(task.task_id)
+        self.task_execute_requested.emit(task.to_dict())
 
-        # 交给外部执行器（例如：BrowserThread + Playwright）
+    @pyqtSlot(str, object)
+    def handle_draft_result(self, task_id: str, payload: object):
+        """Keep generated copy, provenance and owned image copies in the task record."""
+        task = next((item for item in self.tasks if item.task_id == task_id), None)
+        if task is None or task.status != "running" or task.task_type != "hotspot":
+            return  # Deleted, cancelled or already completed tasks cannot be resurrected.
         try:
-            self.task_execute_requested.emit(task.to_dict())
-        except Exception as e:
-            self.handle_task_failure(task, str(e))
+            if not isinstance(payload, dict) or not str(payload.get("content") or "").strip():
+                raise ValueError("热点草稿为空，请检查模型输出")
+            images = payload.get("images") or []
+            if not isinstance(images, list) or any(not isinstance(path, str) or not os.path.isfile(path) for path in images):
+                raise ValueError("草稿图片已失效，请重新生成")
+            task.images = self._copy_task_images(task.task_id, images)
+            task.title = str(payload.get("title") or "").strip()
+            task.content = str(payload["content"]).strip()
+            task.source_metadata = {
+                "ai_generated": True,
+                "hotspot_title": str(payload.get("hotspot_title") or ""),
+                "hotspot_source": str(payload.get("hotspot_source") or ""),
+                "source_url": str(payload.get("source_url") or ""),
+                "reference_snippets": payload.get("reference_snippets") or [],
+                "generated_at": datetime.now().isoformat(),
+                "review_required": True,
+            }
+            task.status = "draft_ready"
+            task.updated_at = datetime.now()
+            task.error_message = "草稿已保存。热榜及搜索摘要未经事实核验，请检查原始来源、素材授权与 AI 声明后再使用。"
+            self.save_tasks()
+        except Exception as error:
+            task.status = "running"  # Failed persistence must not expose a completed draft.
+            self.handle_task_failure(task, f"草稿保存失败：{error}")
+            return
+        self.task_completed.emit(task.task_id)
 
     @pyqtSlot(str, bool, str)
     def handle_task_result(self, task_id: str, success: bool, error_msg: str = ""):
@@ -330,16 +367,16 @@ class ScheduleManager(QObject):
         if not task:
             logging.warning(f"收到未知任务结果回调: {task_id}")
             return
+        if task.status not in {"pending", "running"}:
+            return  # Ignore late acknowledgements after cancellation or completion.
 
         task.updated_at = datetime.now()
         task.error_message = (error_msg or "").strip()
 
         if success:
-            # A browser acknowledgement is not moderation approval. Do not roll
-            # hotspot tasks into another unattended publication automatically.
-            task.status = error_msg if error_msg in {"submitted", "under_review"} else "needs_review"
-            task.error_message = "已执行，请到小红书核验提交及审核结果"
-            self.task_completed.emit(task.task_id)
+            # Legacy execution acknowledgements cannot claim a saved draft or publication.
+            task.status = "reminded" if task.task_type == "fixed" and error_msg == "reminded" else "needs_review"
+            task.error_message = "请打开内容人工核对；程序不会自动发布。"
         else:
             task.status = "needs_review"
             task.retry_count += 1
@@ -348,9 +385,14 @@ class ScheduleManager(QObject):
             for other in self.tasks:
                 if other is not task and other.status in {"pending", "running"}:
                     other.status = "needs_review"
-                    other.error_message = "其他任务出现异常，后续定时任务已暂停，请核验账号和平台记录"
-            self.task_failed.emit(task.task_id, task.error_message)
+                    other.error_message = "其他任务出现异常，后续提醒及草稿任务已暂停，请检查任务、模型配置和存储状态"
         self.save_tasks()
+        if success and task.status == "reminded":
+            self.task_reminded.emit(task.task_id)
+        elif success:
+            self.task_completed.emit(task.task_id)
+        else:
+            self.task_failed.emit(task.task_id, task.error_message)
 
     def handle_task_failure(self, task: ScheduleTask, error_msg: str):
         """处理任务失败"""
@@ -363,8 +405,8 @@ class ScheduleManager(QObject):
     
     def clear_completed_tasks(self):
         """清理已完成的任务"""
-        completed_ids = [t.task_id for t in self.tasks if t.status == "completed"]
-        self.tasks = [task for task in self.tasks if task.status != "completed"]
+        completed_ids = [t.task_id for t in self.tasks if t.status in {"completed", "reminded"}]
+        self.tasks = [task for task in self.tasks if task.status not in {"completed", "reminded"}]
         self.save_tasks()
         for task_id in completed_ids:
             try:
@@ -379,9 +421,11 @@ class ScheduleManager(QObject):
         """获取任务统计"""
         stats = {
             'total': len(self.tasks),
+            'reminded': len([t for t in self.tasks if t.status == 'reminded']),
+            'draft_ready': len([t for t in self.tasks if t.status == 'draft_ready']),
             'pending': len([t for t in self.tasks if t.status == "pending"]),
             'running': len([t for t in self.tasks if t.status == "running"]),
-            'completed': len([t for t in self.tasks if t.status == "completed"]),
+            'completed': len([t for t in self.tasks if t.status in {"completed", "reminded"}]),
             'failed': len([t for t in self.tasks if t.status == "failed"]),
             'needs_review': len([t for t in self.tasks if t.status == "needs_review"]),
             'submitted': len([t for t in self.tasks if t.status == "submitted"]),

@@ -256,7 +256,7 @@
     <div class="container">
         <div class="header">
             <h1>🌸 小红书AI发布器</h1>
-            <p>智能化内容发布，让创作更简单</p>
+            <p>本机编辑草稿，核对后手动发布</p>
         </div>
 
         <div class="content">
@@ -350,10 +350,15 @@
                 </div>
 
                 <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="autoPublish" style="width: auto; margin-right: 8px;">
-                        自动发布 (取消勾选则需要手动确认发布)
-                    </label>
+                    <label><input type="checkbox" id="reviewConfirmed" style="width:auto"> 已核对事实和亲身经历，文字、图片为本人所有或已获授权</label>
+                    <label for="aiUsage">内容是否使用 AI</label>
+                    <select id="aiUsage">
+                        <option value="unspecified">请选择</option>
+                        <option value="none">未使用 AI</option>
+                        <option value="assisted">AI 生成或润色</option>
+                    </select>
+                    <label><input type="checkbox" id="aiDisclosureConfirmed" style="width:auto"> 如使用 AI，将在平台发布页按要求如实声明</label>
+                    <p>下一步只填写发布页，最终发布由你手动完成。人工核对和 AI 声明不能保证通过审核。</p>
                 </div>
             </div>
 
@@ -365,7 +370,7 @@
                 </div>
 
                 <button id="publishBtn" class="btn" style="font-size: 1.1rem; padding: 15px 30px;">
-                    <span id="publishBtnText">🚀 发布到小红书</span>
+                    <span id="publishBtnText">填写发布页</span>
                     <div id="publishLoading" class="loading hidden"></div>
                 </button>
 
@@ -573,7 +578,13 @@
             async publish() {
                 const title = document.getElementById('title').value.trim();
                 const content = document.getElementById('content').value.trim();
-                const autoPublish = document.getElementById('autoPublish').checked;
+                const reviewConfirmed = document.getElementById('reviewConfirmed').checked;
+                const aiUsage = document.getElementById('aiUsage').value;
+                const aiDisclosureConfirmed = document.getElementById('aiDisclosureConfirmed').checked;
+                if (!reviewConfirmed || aiUsage === 'unspecified' || (aiUsage === 'assisted' && !aiDisclosureConfirmed)) {
+                    this.showMessage('publishMessage', '请完成事实、素材授权及 AI 使用核对', 'error');
+                    return;
+                }
 
                 if (!title || !content) {
                     this.showMessage('publishMessage', '请填写标题和内容', 'error');
@@ -596,7 +607,10 @@
                             title: title,
                             content: content,
                             image_files: this.uploadedFiles,
-                            auto_publish: autoPublish
+                            auto_publish: false,
+                            review_confirmed: reviewConfirmed,
+                            ai_usage: aiUsage,
+                            ai_disclosure_confirmed: aiDisclosureConfirmed
                         })
                     });
 
@@ -604,14 +618,12 @@
 
                     if (response.ok) {
                         this.showMessage('publishMessage', data.message, 'success');
-                        if (!autoPublish) {
-                            this.showMessage('publishMessage', '请在打开的浏览器窗口中完成发布操作', 'info');
-                        }
+
                     } else {
                         this.showMessage('publishMessage', data.detail || '发布失败', 'error');
                     }
                 } catch (error) {
-                    this.showMessage('publishMessage', '发布失败，请重试', 'error');
+                    this.showMessage('publishMessage', '请求结果不明，请先检查浏览器和任务状态，避免重复操作', 'error');
                     console.error('Publish error:', error);
                 } finally {
                     this.setLoading('publishBtn', false);
@@ -674,7 +686,9 @@
                 document.getElementById('verificationCode').value = '';
                 document.getElementById('title').value = '';
                 document.getElementById('content').value = '';
-                document.getElementById('autoPublish').checked = false;
+                document.getElementById('reviewConfirmed').checked = false;
+                document.getElementById('aiUsage').value = 'unspecified';
+                document.getElementById('aiDisclosureConfirmed').checked = false;
                 document.getElementById('verificationArea').classList.add('hidden');
                 document.getElementById('loginBtn').disabled = false;
                 document.getElementById('verifyBtn').disabled = false;

@@ -326,7 +326,7 @@ class XiaohongshuUI(QMainWindow):
             self.home_page.handle_preview_error)
         self.browser_thread.start()
         
-        # 启动定时发布调度器
+        # 启动提醒与草稿调度器
         from src.core.scheduler.schedule_manager import schedule_manager
         self.schedule_manager = schedule_manager
         try:
@@ -334,6 +334,8 @@ class XiaohongshuUI(QMainWindow):
             self.schedule_manager.task_execute_requested.connect(self.enqueue_scheduled_task)
             # 浏览器线程回传执行结果：更新任务状态（跨线程安全）
             self.browser_thread.scheduled_task_result.connect(self.schedule_manager.handle_task_result)
+            self.browser_thread.scheduled_task_draft_ready.connect(self.schedule_manager.handle_draft_result)
+            self.schedule_manager.task_reminded.connect(self.on_scheduled_task_reminded)
 
             # 可选：提示执行状态
             self.schedule_manager.task_started.connect(self.on_scheduled_task_started)
@@ -426,19 +428,30 @@ class XiaohongshuUI(QMainWindow):
             except Exception:
                 pass
 
+    def refresh_task_list(self):
+        self.backend_config_page.refresh_schedule_tasks()
+
+    def on_scheduled_task_reminded(self, task_id: str):
+        self.refresh_task_list()
+        QApplication.alert(self)
+        TipWindow(self, "提醒时间已到。请到后台配置 → 提醒与草稿打开内容，核对后手动发布。").show()
+
     def on_scheduled_task_started(self, task_id: str):
+        self.refresh_task_list()
         try:
-            TipWindow(self, f"⏰ 定时任务开始执行：{task_id}").show()
+            TipWindow(self, f"正在生成热点草稿：{task_id}").show()
         except Exception:
             pass
 
     def on_scheduled_task_completed(self, task_id: str):
+        self.refresh_task_list()
         try:
-            TipWindow(self, f"📤 定时任务已执行，请核验平台结果：{task_id}").show()
+            TipWindow(self, f"热点草稿已保存。请到后台配置 → 提醒与草稿打开内容：{task_id}").show()
         except Exception:
             pass
 
     def on_scheduled_task_failed(self, task_id: str, reason: str):
+        self.refresh_task_list()
         try:
             msg = f"⚠️ 定时任务已暂停，等待核验：{task_id}"
             if reason:
@@ -460,7 +473,7 @@ class XiaohongshuUI(QMainWindow):
     def closeEvent(self, event):
         print("关闭应用")
         try:
-            # 停止定时发布调度器
+            # 停止提醒与草稿调度器
             from src.core.scheduler.schedule_manager import schedule_manager
             schedule_manager.stop_scheduler()
             

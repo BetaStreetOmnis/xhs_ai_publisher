@@ -582,7 +582,7 @@ class HomePage(QWidget):
         preview_layout.addWidget(self.image_title)
 
         # 添加预览发布按钮
-        preview_btn = QPushButton("🎯 预览发布")
+        preview_btn = QPushButton("填写发布页")
         preview_btn.setObjectName("preview_btn")
         preview_btn.setStyleSheet("""
             QPushButton {
@@ -607,7 +607,7 @@ class HomePage(QWidget):
             preview_btn, alignment=Qt.AlignCenter)
 
         # 添加定时发布按钮
-        self.schedule_btn = QPushButton("⏰ 定时发布")
+        self.schedule_btn = QPushButton("⏰ 创建提醒 / 热点草稿")
         self.schedule_btn.setObjectName("schedule_btn")
         self.schedule_btn.setStyleSheet("""
             QPushButton {
@@ -863,7 +863,7 @@ class HomePage(QWidget):
                 self.current_image_index = 0
                 self.image_label.setPixmap(self.placeholder_photo)
                 self.image_title.setText("未解析到图片，请手动选择图片或改用模板生成")
-                self.parent.update_preview_button("🎯 预览发布", False)
+                self.parent.update_preview_button("填写发布页", False)
                 TipWindow(self.parent, "⚠️ 未解析到图片（小红书图文发布需要图片）").show()
                 return
 
@@ -887,7 +887,7 @@ class HomePage(QWidget):
             self.current_image_index = 0
             self.image_label.setPixmap(self.placeholder_photo)
             self.image_title.setText("正在加载图片...")
-            self.parent.update_preview_button("🎯 预览发布", False)
+            self.parent.update_preview_button("填写发布页", False)
 
         except Exception as e:
             self.handle_wechat_import_error(str(e))
@@ -1277,7 +1277,7 @@ class HomePage(QWidget):
                     self.prev_btn.setEnabled(len(self.image_list) > 1)
                     self.next_btn.setEnabled(len(self.image_list) > 1)
                     # 启用预览发布按钮
-                    self.parent.update_preview_button("🎯 预览发布", True)
+                    self.parent.update_preview_button("填写发布页", True)
                 else:
                     raise Exception("图片数据无效")
             else:
@@ -1288,14 +1288,14 @@ class HomePage(QWidget):
             self.image_label.setPixmap(self.placeholder_photo)
             self.image_title.setText("图片加载失败")
             # 禁用预览发布按钮
-            self.parent.update_preview_button("🎯 预览发布", False)
+            self.parent.update_preview_button("填写发布页", False)
             TipWindow(self.parent, f"❌ 图片加载失败: {str(e)}").show()
 
     def handle_image_processing_error(self, error_msg):
         self.image_label.setPixmap(self.placeholder_photo)
         self.image_title.setText("图片加载失败")
         # 禁用预览发布按钮
-        self.parent.update_preview_button("🎯 预览发布", False)
+        self.parent.update_preview_button("填写发布页", False)
         TipWindow(self.parent, f"❌ 图片处理失败: {error_msg}").show()
 
     def show_current_image(self):
@@ -1333,11 +1333,14 @@ class HomePage(QWidget):
                 TipWindow(self.parent, "❌ 请先登录").show()
                 return
 
+            from src.core.pages.publication_review_dialog import PublicationReviewDialog
+            if PublicationReviewDialog(self).exec() != PublicationReviewDialog.Accepted:
+                return
             title = self.title_input.text()
             content = self.subtitle_input.toPlainText()
 
             # 更新预览按钮状态
-            self.parent.update_preview_button("⏳ 发布中...", False)
+            self.parent.update_preview_button("⏳ 正在填写...", False)
 
             # 添加预览任务到浏览器线程
             self.parent.browser_thread.action_queue.append({
@@ -1350,24 +1353,46 @@ class HomePage(QWidget):
         except Exception as e:
             TipWindow(self.parent, f"❌ 预览发布失败: {str(e)}").show()
 
+    def load_local_draft(self, task):
+        """Load persisted content for editing without browser or model actions."""
+        if self.title_input.text().strip() or self.subtitle_input.toPlainText().strip() or self.images:
+            answer = QMessageBox.question(self, "载入内容", "首页已有内容。是否用所选草稿替换？原任务仍保留在列表中。")
+            if answer != QMessageBox.Yes:
+                return False
+        images = []
+        previews = []
+        for path in task.images:
+            pixmap = QPixmap(path)
+            if pixmap.isNull():
+                QMessageBox.warning(self, "图片无法读取", "草稿中的图片已失效，当前编辑内容未替换。请先检查任务目录。")
+                return False
+            images.append(path)
+            previews.append({"pixmap": pixmap.scaled(320, 420, Qt.KeepAspectRatio, Qt.SmoothTransformation), "title": os.path.basename(path)})
+        self.title_input.setText(task.title)
+        self.subtitle_input.setPlainText(task.content)
+        self.images = images
+        self.image_list = previews
+        self.current_image_index = 0
+        self.show_current_image()
+        preview_btn = self.findChild(QPushButton, "preview_btn")
+        if preview_btn:
+            preview_btn.setEnabled(bool(images))
+        return True
+
     def schedule_publish(self):
-        """创建定时发布任务（无人值守自动发布）。"""
+        """创建一次性提醒或热点草稿，不要求账号登录。"""
         try:
-            # 只允许选择“已登录”的用户（无人值守避免验证码）
+            # 关联账号仅用于记录归属，不要求登录，也不会自动登录
             try:
                 from src.core.services.user_service import user_service
 
                 current_user = user_service.get_current_user()
-                users = [u for u in user_service.list_users(active_only=True) if getattr(u, "is_logged_in", False)]
+                users = user_service.list_users(active_only=True)
             except Exception:
                 users = []
                 current_user = None
 
-            if not users:
-                TipWindow(self.parent, "❌ 没有已登录用户，请先登录后再创建定时任务").show()
-                return
-
-            default_user_id = getattr(current_user, "id", None) if current_user else getattr(users[0], "id", None)
+            default_user_id = getattr(current_user, "id", None)
 
             # 默认重复间隔取后台配置的 interval_hours
             default_interval_hours = 2
@@ -1390,12 +1415,8 @@ class HomePage(QWidget):
 
             user_id = dialog.get_user_id()
             schedule_time = dialog.get_schedule_time()
-            if not user_id:
-                TipWindow(self.parent, "❌ 请选择发布账号").show()
-                return
-
             if not hasattr(schedule_time, "isoformat"):
-                TipWindow(self.parent, "❌ 发布时间无效").show()
+                TipWindow(self.parent, "❌ 提醒或生成时间无效").show()
                 return
 
             from src.core.scheduler.schedule_manager import schedule_manager
@@ -1420,7 +1441,7 @@ class HomePage(QWidget):
                     schedule_time=schedule_time,
                     title=f"热点({source}) #{rank}",
                     images=[],
-                    user_id=int(user_id),
+                    user_id=user_id,
                     task_type="hotspot",
                     interval_hours=int(interval_hours),
                     hotspot_source=str(source),
@@ -1449,7 +1470,7 @@ class HomePage(QWidget):
                     schedule_time=schedule_time,
                     title=title,
                     images=images,
-                    user_id=int(user_id),
+                    user_id=user_id,
                     task_type="fixed",
                     cover_template_id=cover_template_id,
                     page_count=3,
@@ -1460,7 +1481,7 @@ class HomePage(QWidget):
             except Exception:
                 ts = str(schedule_time)
 
-            TipWindow(self.parent, f"✅ 已创建定时任务：{ts}\n任务ID: {task_id}").show()
+            TipWindow(self.parent, f"✅ 已创建提醒 / 草稿任务：{ts}\n任务ID: {task_id}").show()
 
             # 若配置页存在任务列表，尽量刷新
             try:
@@ -1474,12 +1495,12 @@ class HomePage(QWidget):
 
     def handle_preview_result(self):
         # 恢复预览按钮状态
-        self.parent.update_preview_button("🎯 预览发布", True)
-        TipWindow(self.parent, "🎉 文章已准备好，请在浏览器中检查并发布").show()
+        self.parent.update_preview_button("填写发布页", True)
+        TipWindow(self.parent, "内容已填入浏览器。请检查账号、内容和 AI 声明后手动发布。").show()
 
     def handle_preview_error(self, error_msg):
         # 恢复预览按钮状态
-        self.parent.update_preview_button("🎯 预览发布", True)
+        self.parent.update_preview_button("填写发布页", True)
         TipWindow(self.parent, f"❌ 预览发布失败: {error_msg}").show()
 
     def update_title_config(self):

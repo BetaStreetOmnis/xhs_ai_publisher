@@ -23,6 +23,7 @@ from core.logger import logger
 from core.config import config
 from src.core.services.publication_policy import (
     BLOCKED_PUBLICATION_STATES, PublicationNeedsReview, publication_fingerprint,
+    AUTO_PUBLICATION_DISABLED,
 )
 
 from src.version import __version__
@@ -30,7 +31,7 @@ from src.core.services.web_access import check_web_access
 
 app = FastAPI(
     title="小红书AI发布器",
-    description="基于Web的小红书自动发布工具",
+    description="本机草稿编辑与发布页辅助填写",
     version=__version__
 )
 
@@ -137,6 +138,9 @@ class PublishRequest(BaseModel):
     content: Optional[str] = None
     image_files: Optional[List[Any]] = []
     auto_publish: bool = False
+    review_confirmed: bool = False
+    ai_usage: str = "unspecified"
+    ai_disclosure_confirmed: bool = False
 
 class SessionResponse(BaseModel):
     session_id: str
@@ -443,7 +447,13 @@ async def list_contents(status: Optional[str] = None, limit: Optional[int] = Non
 
 @app.post("/api/publish")
 async def publish_content(request: PublishRequest, background_tasks: BackgroundTasks):
-    """发布内容"""
+    """Only fill a browser form after explicit review; never submit it."""
+    if request.auto_publish:
+        raise HTTPException(status_code=400, detail=AUTO_PUBLICATION_DISABLED)
+    if not request.review_confirmed or request.ai_usage not in {"none", "assisted"}:
+        raise HTTPException(status_code=400, detail="请先核对事实、亲身经历及素材授权，并说明是否使用 AI")
+    if request.ai_usage == "assisted" and not request.ai_disclosure_confirmed:
+        raise HTTPException(status_code=400, detail="使用 AI 的内容，请确认将在平台发布页如实声明")
     expected_generation = browser_generation
     try:
         ensure_basic_managers()
@@ -489,16 +499,15 @@ async def publish_content(request: PublishRequest, background_tasks: BackgroundT
         if content_item.status in BLOCKED_PUBLICATION_STATES:
             raise HTTPException(status_code=409, detail="稿件已排队、已提交或需要核验，请先检查平台记录")
         fingerprint = publication_fingerprint(content_item.title, content_item.content, content_item.images)
-        if request.auto_publish:
-            for existing in content_manager.list_contents():
-                if existing.id == content_id or existing.status not in BLOCKED_PUBLICATION_STATES:
-                    continue
-                existing_fingerprint = existing.publication_fingerprint or publication_fingerprint(
-                    existing.title, existing.content, existing.images,
-                )
-                if existing_fingerprint == fingerprint:
-                    raise HTTPException(status_code=409, detail="相同内容已有发布任务或提交记录，请先核验")
-            content_item.publication_fingerprint = fingerprint
+        for existing in content_manager.list_contents():
+            if existing.id == content_id or existing.status not in BLOCKED_PUBLICATION_STATES:
+                continue
+            existing_fingerprint = existing.publication_fingerprint or publication_fingerprint(
+                existing.title, existing.content, existing.images,
+            )
+            if existing_fingerprint == fingerprint:
+                raise HTTPException(status_code=409, detail="相同内容已有发布任务或提交记录，请先核验")
+        content_item.publication_fingerprint = fingerprint
         snapshot = copy.deepcopy(content_item)
         if not content_manager.update_content_status(content_id, "queued"):
             raise HTTPException(status_code=409, detail="稿件已被删除，请重新检查")
@@ -529,28 +538,25 @@ async def publish_content(request: PublishRequest, background_tasks: BackgroundT
                         title=snapshot.title,
                         content=snapshot.content,
                         images=snapshot.images,
-                        auto_publish=bool(request.auto_publish),
+                        auto_publish=False,
                     )
                     if not success:
                         raise PublicationNeedsReview("发布器没有确认结果，请到平台核验")
-                    final_status = getattr(publisher, "last_publish_status", "unknown") if request.auto_publish else "draft"
-                    if final_status not in {"submitted", "under_review", "draft"}:
-                        final_status = "unknown"
-                    message = "请到小红书核验提交及审核结果" if final_status != "draft" else None
-                    content_manager.update_content_status(content_id, final_status, message)
+                    final_status = "draft"
+                    content_manager.update_content_status(content_id, final_status)
                     logger.info(f"内容任务结束: {content_id}, status={final_status}")
                 except Exception as error:
-                    needs_review = isinstance(error, PublicationNeedsReview) or getattr(publisher, "_submission_attempted", False)
-                    content_manager.update_content_status(content_id, "needs_review" if needs_review else "failed", str(error))
+                    # A partial form fill needs inspection before another attempt.
+                    content_manager.update_content_status(content_id, "needs_review", str(error))
                     logger.error(f"内容任务异常: {content_id}", exc_info=True)
 
         background_tasks.add_task(publish_task)
 
         return {
             'success': True,
-            'message': '自动发布任务已启动，请稍后查看状态' if request.auto_publish else '内容已开始自动填写，请在浏览器中手动确认发布',
+            'message': '已开始填写发布页，请在浏览器中检查账号、内容和 AI 声明后手动发布',
             'content_id': content_id,
-            'auto_publish': bool(request.auto_publish),
+            'auto_publish': False,
         }
 
     except HTTPException:

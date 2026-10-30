@@ -19,6 +19,7 @@ class BrowserThread(QThread):
     login_error = pyqtSignal(str)  # 用于传递错误信息
     preview_success = pyqtSignal()  # 用于通知预览成功
     preview_error = pyqtSignal(str)  # 用于传递预览错误信息
+    scheduled_task_draft_ready = pyqtSignal(str, object)
     scheduled_task_result = pyqtSignal(str, bool, str)  # (task_id, success, error_msg)
 
     def __init__(self):
@@ -142,6 +143,8 @@ class BrowserThread(QThread):
                             auto_publish=False,
                         )
                         self.preview_success.emit()
+                    elif action['type'] == 'resume_draft_tasks':
+                        self._scheduled_publish_paused = False
                     elif action['type'] == 'scheduled_publish':
                         await self._run_scheduled_publish(action)
                 except Exception as e:
@@ -186,126 +189,22 @@ class BrowserThread(QThread):
             await asyncio.sleep(0.1)  # 避免CPU占用过高
 
     async def _run_scheduled_publish(self, action: dict):
-        """执行定时发布（无人值守，自动点击发布）。"""
-        if self._scheduled_publish_paused:
-            raise PublicationNeedsReview("定时发布队列已暂停，请先核验账号及笔记记录，再重新启动程序")
+        """Compatibility queue action: reminders or local drafts only; no browser I/O."""
         task_id = str(action.get("task_id") or "")
-        user_id = action.get("user_id")
-        task_type = str(action.get("task_type") or "fixed").strip() or "fixed"
-        title = str(action.get("title") or "")
-        content = str(action.get("content") or "")
-        images = action.get("images") or []
-
-        if isinstance(images, (list, tuple)):
-            images = [p for p in images if isinstance(p, str) and p and os.path.isfile(p)]
-        else:
-            images = []
-
-        if task_type == "hotspot":
+        try:
+            if self._scheduled_publish_paused:
+                raise PublicationNeedsReview("草稿任务已暂停，请先检查任务记录")
+            if action.get("task_type", "fixed") == "fixed":
+                self.scheduled_task_result.emit(task_id, True, "reminded")
+                return
+            if action.get("task_type") != "hotspot":
+                raise ValueError("未知任务类型")
             loop = asyncio.get_running_loop()
             payload = await loop.run_in_executor(None, partial(self._build_hotspot_payload_sync, action))
-            title = str(payload.get("title") or "").strip()
-            content = str(payload.get("content") or "").strip()
-            images = payload.get("images") or []
-            if isinstance(images, (list, tuple)):
-                images = [p for p in images if isinstance(p, str) and p and os.path.isfile(p)]
-            else:
-                images = []
-
-            if not title and not content:
-                raise RuntimeError("热点任务生成文案失败：标题/内容为空")
-            if not images:
-                raise RuntimeError("热点任务生成图片失败：图片为空")
-        else:
-            if not title and not content:
-                raise RuntimeError("发布失败：标题/正文为空")
-
-            # 固定内容任务：若未提供图片，则到点自动生成模板图/占位图
-            if not images:
-                cover_template_id = str(action.get("cover_template_id") or "").strip()
-                try:
-                    page_count = int(action.get("page_count") or 3)
-                except Exception:
-                    page_count = 3
-                page_count = max(1, page_count)
-                images = self._generate_images_for_text(title=title, content=content, cover_template_id=cover_template_id, page_count=page_count)
-                if isinstance(images, (list, tuple)):
-                    images = [p for p in images if isinstance(p, str) and p and os.path.isfile(p)]
-                else:
-                    images = []
-
-        # 默认使用当前用户
-        if not user_id:
-            try:
-                from src.core.services.user_service import user_service
-
-                current_user = user_service.get_current_user()
-                user_id = current_user.id if current_user else None
-            except Exception:
-                user_id = None
-
-        # 读取该用户默认浏览器环境（代理/指纹）
-        browser_env = None
-        try:
-            from src.core.services.browser_environment_service import browser_environment_service
-
-            if user_id:
-                browser_env = browser_environment_service.get_default_environment(int(user_id))
-                if not browser_env:
-                    browser_environment_service.create_preset_environments(int(user_id))
-                    browser_env = browser_environment_service.get_default_environment(int(user_id))
-
-                # 定时任务同样优先使用与当前系统匹配的环境（避免 UA/platform 与 OS 不一致触发风控）
-                if browser_env and sys.platform == "darwin":
-                    ua = (browser_env.user_agent or "")
-                    platform = (browser_env.platform or "")
-                    if "Windows NT" in ua or platform == "Win32":
-                        browser_environment_service.create_preset_environments(int(user_id))
-                        envs = browser_environment_service.get_user_environments(int(user_id), active_only=True) or []
-                        for env in envs:
-                            if (env.platform or "") == "MacIntel" or "Macintosh" in (env.user_agent or ""):
-                                browser_env = env
-                                break
-                elif browser_env and sys.platform == "win32":
-                    ua = (browser_env.user_agent or "")
-                    platform = (browser_env.platform or "")
-                    if "Macintosh" in ua or platform == "MacIntel":
-                        browser_environment_service.create_preset_environments(int(user_id))
-                        envs = browser_environment_service.get_user_environments(int(user_id), active_only=True) or []
-                        for env in envs:
-                            if (env.platform or "") == "Win32" or "Windows NT" in (env.user_agent or ""):
-                                browser_env = env
-                                break
-        except Exception:
-            browser_env = None
-
-        if not images:
-            raise RuntimeError("发布失败：缺少图片（小红书图文发布需要图片）")
-
-        poster = None
-        poster_is_ephemeral = False
-        try:
-            target_uid = int(user_id) if user_id else None
-
-            # 优先复用当前线程已登录的 poster，避免 persistent profile 目录被同时打开导致启动失败。
-            if self.poster and getattr(self.poster, "user_id", None) == target_uid:
-                poster = self.poster
-            else:
-                poster = XiaohongshuPoster(user_id=target_uid, browser_environment=browser_env)
-                poster_is_ephemeral = True
-
-            await poster.initialize()
-            await poster.post_article(title, content, images, auto_publish=True)
-            self.scheduled_task_result.emit(task_id, True, getattr(poster, "last_publish_status", "unknown"))
-        except Exception as e:
+            self.scheduled_task_draft_ready.emit(task_id, payload)
+        except Exception as error:
             self._scheduled_publish_paused = True
-            self.scheduled_task_result.emit(task_id, False, str(e))
-        finally:
-            try:
-                if poster and poster_is_ephemeral:
-                    await poster.close(force=True)
-            except Exception:
-                pass
+            self.scheduled_task_result.emit(task_id, False, str(error))
 
     @classmethod
     def _generate_images_for_text(cls, *, title: str, content: str, cover_template_id: str = "", page_count: int = 3):
@@ -471,6 +370,7 @@ class BrowserThread(QThread):
             raise RuntimeError("热点抓取失败：标题为空")
 
         context_text = ""
+        snippets = []
         if use_ctx:
             try:
                 snippets = hotspot_service.fetch_baidu_search_snippets(topic, limit=3, timeout=10)
@@ -492,6 +392,11 @@ class BrowserThread(QThread):
         if context_text:
             llm_topic = f"{topic}\n\n参考信息（百度搜索摘要）：\n{context_text}".strip()
 
+        llm_topic += (
+            "\n\n仅生成待核实草稿。热榜标题和搜索摘要不是已核实事实。"
+            "不要编造亲身体验、采访、测评、数据或引语；不确定的信息明确写为待核实，"
+            "不要把新闻传闻写成确定事实，不添加站外交易或联系方式。"
+        )
         generated_title = ""
         generated_content = ""
         try:
@@ -507,41 +412,12 @@ class BrowserThread(QThread):
         except Exception as error:
             raise PublicationNeedsReview("热点文案生成失败，任务已暂停，请人工检查；不会自动发布模板稿") from error
 
-        if not generated_title and not generated_content:
+        if not generated_content:
             raise RuntimeError("生成失败：标题/内容为空")
 
         # 生成图片：优先使用封面模板（含营销海报特殊逻辑），否则使用系统模板；最后回退本地占位图
         images = []
-        if cover_template_id == "showcase_marketing_poster":
-            try:
-                from src.core.services.llm_service import llm_service
-                from src.core.services.marketing_poster_service import marketing_poster_service
-
-                poster_content = llm_service.generate_marketing_poster_content(topic=topic)
-                try:
-                    asset_path = str(Config().get_templates_config().get("marketing_poster_asset_path") or "").strip()
-                except Exception:
-                    asset_path = ""
-                asset_path = os.path.expanduser(asset_path) if asset_path else ""
-                if asset_path and os.path.exists(asset_path):
-                    try:
-                        poster_content["asset_image_path"] = asset_path
-                    except Exception:
-                        pass
-                cover_path, content_paths = marketing_poster_service.generate_to_local_paths(poster_content)
-                t = str((poster_content or {}).get("title") or "").strip()
-                if t:
-                    generated_title = t
-
-                caption = str((poster_content or {}).get("caption") or "").strip()
-                subtitle = str((poster_content or {}).get("subtitle") or "").strip()
-                if caption or subtitle:
-                    generated_content = caption or subtitle
-
-                images = [cover_path] + list(content_paths or [])
-            except Exception:
-                images = []
-
+        # Render the reviewed-source draft directly; do not replace it with a second marketing generation.
         if not images:
             try:
                 from pathlib import Path
@@ -575,7 +451,7 @@ class BrowserThread(QThread):
             cover_path, content_paths = cls._generate_local_placeholder_images(generated_title or topic, count=max(2, page_count))
             images = [cover_path] + list(content_paths or [])
 
-        return {"title": generated_title, "content": generated_content, "images": images, "hotspot_title": topic, "hotspot_source": source, "hotspot_rank": rank}
+        return {"title": generated_title, "content": generated_content, "images": images, "hotspot_title": topic, "hotspot_source": source, "hotspot_rank": rank, "source_url": str(getattr(item, "url", "") or ""), "reference_snippets": snippets}
 
     def stop(self):
         self.is_running = False

@@ -11,7 +11,7 @@ from glob import glob
 from typing import List
 
 from src.core.services.chrome_login_state_service import import_login_state_from_system_chrome
-from src.core.services.publication_policy import PublicationNeedsReview
+from src.core.services.publication_policy import PublicationNeedsReview, require_manual_publication, AUTO_PUBLICATION_DISABLED
 from src.core.services.runtime_paths import get_logs_dir
 
 try:
@@ -276,10 +276,8 @@ class XiaohongshuPoster:
             return []
 
     def _allow_force_dom_actions(self, *, manual_mode: bool = False) -> bool:
-        return self._is_truthy(
-            self._get_env_value("XHS_ENABLE_FORCE_DOM_ACTIONS", None),
-            default=bool(manual_mode),
-        )
+        # Do not bypass disabled/hidden controls with synthetic DOM events.
+        return False
 
     async def _warmup_xhs_sso(self, *, force_navigation: bool = False) -> None:
         """按需让 SSO 覆盖到 www 域名，避免发布页调用 www.* 接口返回 401。"""
@@ -1029,84 +1027,7 @@ class XiaohongshuPoster:
             except Exception:
                 pass
             
-            enable_stealth_script = self._is_truthy(
-                self._get_env_value("XHS_ENABLE_STEALTH_SCRIPT", None),
-                default=not bool(use_persistent_context),
-            )
-            if enable_stealth_script:
-                webgl_vendor = self._get_env_value("webgl_vendor") or "Intel Open Source Technology Center"
-                webgl_renderer = self._get_env_value("webgl_renderer") or "Mesa DRI Intel(R) HD Graphics (SKL GT2)"
-                platform = self._get_env_value("platform") or ""
-                webgl_vendor_js = json.dumps(webgl_vendor, ensure_ascii=False)
-                webgl_renderer_js = json.dumps(webgl_renderer, ensure_ascii=False)
-                platform_js = json.dumps(platform, ensure_ascii=False)
-                stealth_js = """
-                (function(){
-                    const __xhs_webgl_vendor = %s;
-                    const __xhs_webgl_renderer = %s;
-                    const __xhs_platform = %s;
-
-                    try {
-                        const originalQuery = window.navigator.permissions && window.navigator.permissions.query;
-                        if (typeof originalQuery === 'function') {
-                            window.navigator.permissions.query = (parameters) => (
-                                parameters && parameters.name === 'notifications'
-                                    ? Promise.resolve({ state: Notification.permission })
-                                    : originalQuery.call(window.navigator.permissions, parameters)
-                            );
-                        }
-                    } catch (e) {}
-                    
-                    const getParameter = WebGLRenderingContext.prototype.getParameter;
-                    WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                        if (parameter === 37445) {
-                            return __xhs_webgl_vendor;
-                        }
-                        if (parameter === 37446) {
-                            return __xhs_webgl_renderer;
-                        }
-                        return getParameter.apply(this, arguments);
-                    };
-
-                    if (__xhs_platform) {
-                        try {
-                            Object.defineProperty(navigator, 'platform', { get: () => __xhs_platform });
-                        } catch (e) {}
-                    }
-
-                    try {
-                        const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-                        Element.prototype.getBoundingClientRect = function() {
-                            const rect = originalGetBoundingClientRect.apply(this, arguments);
-                            try {
-                                rect.width = Math.round(rect.width);
-                                rect.height = Math.round(rect.height);
-                            } catch (e) {}
-                            return rect;
-                        };
-                    } catch (e) {}
-
-                    try {
-                        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-                    } catch (e) {}
-
-                    try {
-                        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-                    } catch (e) {}
-
-                    try {
-                        Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh'] });
-                    } catch (e) {}
-                    
-                    window.chrome = {
-                        runtime: {}
-                    };
-                })();
-                """ % (webgl_vendor_js, webgl_renderer_js, platform_js)
-                await self.page.add_init_script(stealth_js)
-            else:
-                print("使用 persistent profile，默认不注入额外 stealth 指纹覆写")
-            
+            # Keep the browser's real automation and environment properties.
             print("浏览器启动成功！")
             logging.debug("浏览器启动成功！")
 
@@ -1625,14 +1546,8 @@ class XiaohongshuPoster:
         await self._save_storage_state()
 
     async def _click_final_publish_button(self, button):
-        if self._submission_attempted:
-            raise PublicationNeedsReview("发布按钮已经尝试点击，请先人工核验，不会再次点击")
-        self._submission_attempted = True
-        self.last_publish_status = "unknown"
-        try:
-            await button.click(timeout=8000)
-        except Exception as error:
-            raise PublicationNeedsReview("发布按钮已尝试点击，但结果不明，请人工核验，不要重发") from error
+        # Also guard old/internal callers that bypass post_article().
+        raise PublicationNeedsReview(AUTO_PUBLICATION_DISABLED)
 
     async def _check_publication_dialogs(self):
         # Dialogs may contain account warnings or content declarations. Leave
@@ -1666,8 +1581,9 @@ class XiaohongshuPoster:
             title: 文章标题
             content: 文章内容
             images: 图片路径列表
-            auto_publish: 是否自动点击最终“发布”按钮（无人值守）
+            auto_publish: 兼容旧参数；True 会在启动浏览器前被拒绝
         """
+        require_manual_publication(auto_publish)
         self.last_publish_status = "failed"
         self._submission_attempted = False
         await self.ensure_browser()  # 确保浏览器已初始化
@@ -2491,81 +2407,6 @@ class XiaohongshuPoster:
                     
             except Exception as e:
                 print(f"内容输入失败: {e}")
-
-            # 自动/手动发布
-            if auto_publish:
-                await self._check_publication_dialogs()
-                print("尝试自动点击“发布”按钮（无人值守）...")
-                publish_success = False
-
-                # 可能的最终发布按钮选择器（页面结构经常变化，尽量覆盖多种情况）
-                final_publish_selectors = [
-                    "button:has-text('确认发布')",
-                    "button:has-text('立即发布')",
-                    "button:has-text('发布')",
-                    "button:has-text('提交')",
-                    ".submit-btn",
-                    ".publish-btn",
-                    ".publishButton",
-                    "[data-testid='publish']",
-                    # xhs-toolkit PR#50 中的 xpath（作为兜底；页面 DOM 变动会导致失效）
-                    "xpath=//*[@id=\"global\"]/div/div[2]/div[2]/div[2]/button[1]",
-                ]
-
-                # 先滚动到底部，避免发布按钮不在视口内导致点击/定位异常
-                try:
-                    for _ in range(6):
-                        await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(0.2)
-                except Exception:
-                    pass
-
-                initial_url = ""
-                try:
-                    initial_url = self.page.url or ""
-                except Exception:
-                    initial_url = ""
-
-                last_error = None
-                for selector in final_publish_selectors:
-                    try:
-                        loc = self.page.locator(selector)
-                        if await loc.count() <= 0:
-                            continue
-
-                        btn = loc.last
-                        await btn.wait_for(state="visible", timeout=8000)
-                        await btn.scroll_into_view_if_needed()
-
-                        # 有些按钮一开始处于禁用状态，短暂等待其变为可点击
-                        for _ in range(20):
-                            try:
-                                if await btn.is_enabled():
-                                    break
-                            except Exception:
-                                break
-                            await asyncio.sleep(0.5)
-
-                        # A click can reach the server before Playwright times out.
-                        # Never try another selector after any submission attempt.
-                        await self._click_final_publish_button(btn)
-                        print(f"已点击最终发布按钮: {selector}")
-                        publish_success = True
-                        break
-                    except Exception as e:
-                        if self._submission_attempted:
-                            raise PublicationNeedsReview("发布按钮已尝试点击，但结果不明，请人工核验，不要重发") from e
-                        last_error = e
-                        continue
-
-                if not publish_success:
-                    try:
-                        await safe_screenshot("debug_final_publish_button.png")
-                    except Exception:
-                        pass
-                    raise Exception(f"无法找到最终发布按钮: {last_error}")
-
-                return await self._wait_for_publication_result()
 
             self.last_publish_status = "draft"
             print("文章已准备好，请在浏览器中检查并手动点击发布。")

@@ -45,7 +45,7 @@ curl --fail --silent --show-error http://127.0.0.1:8000/api/auth/status
 修改文案后先保存为一份新草稿，并指出它替代哪一份，等待我确认最新内容。
 
 所有生成、改稿和跟进请求默认只做草稿。
-只有我明确指定草稿 ID 并要求发布时，才调用 POST /api/publish，设置 auto_publish=true。
+不要请求自动提交。只有内容经过人工核对后才调用 POST /api/publish 辅助填写，最终发布由本人在小红书页面点击。
 遇到发布超时或不明确的结果，先检查状态和浏览器，不要自动重发。
 发布接口接受任务不代表发布完成；继续查询该内容，报告实际状态。
 不要把密码、Cookie、验证码或模型密钥发到会话里。
@@ -84,7 +84,7 @@ curl --fail --silent --show-error http://127.0.0.1:8000/api/auth/status
 
 ## 核对结果
 
-`POST /api/publish` 的 `auto_publish=false` 只填写浏览器，仍需要在电脑浏览器中确认；它不是手机发布确认功能。明确授权的自动发布使用 `auto_publish=true`。
+`POST /api/publish` 的 `auto_publish=false` 只填写浏览器，仍需要在电脑浏览器中确认；它不是手机发布确认功能。`auto_publish=true` 一律返回 HTTP 400。核对事实和素材授权后传 `review_confirmed=true`，并将 `ai_usage` 设为 `none`（未使用 AI）或 `assisted`（AI 生成或润色）；后者还需确认会在平台声明并传 `ai_disclosure_confirmed=true`。这些字段不代表系统已核实事实，也不会自动设置平台的 AI 声明。
 
 发布请求返回后，查询内容状态。当前实现会记录 `queued`、`publishing`、`submitted`、`under_review`、`needs_review`、`unknown` 或 `failed`。`submitted` 只代表工具识别到提交提示，`under_review` 仍在审核；都不代表审核通过。重复请求会返回 409，先核对平台记录，不要换个草稿 ID 再发同一内容。
 

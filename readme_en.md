@@ -27,6 +27,17 @@
 
 ---
 
+## Current source workflow · 2026-10-30
+
+- **Scheduled publication is now a reminder.** Due tasks notify you and retain content in Backend Config → 提醒与草稿 (Reminders & Drafts). They do not open a browser or post. Keep the app running; overdue tasks are processed when the app resumes.
+- **Hotspots generate one local draft only.** Copy, images and source references are saved without logging in, submitting or repeating. Generation uses your configured model and allowance.
+- **Open and review the saved draft.** Select a task and choose 打开内容 (Open Content). 查看来源与核对提示 (Sources & Review) shows the hot-list link and search snippets. Snippets are not verified facts; check asset rights too. Clearing old completed/reminded items deletes those records and images; hotspot drafts require explicit deletion.
+- **You make the final publication.** Review facts, firsthand claims, asset rights and AI use before filling the form. Check the target account and AI disclosure on Xiaohongshu, then click Publish yourself. Review and disclosure cannot guarantee moderation approval.
+- **Legacy entry points are restricted too.** Desktop and local Web/API reject `auto_publish=true`. Pending legacy tasks use the new policy and ignore repeat intervals. Interrupted, submitted or under-review historical records require verification and are never resent automatically.
+- Automation-hiding injection scripts and forced-click / synthetic DOM-event fallbacks have been removed. `XHS_ENABLE_STEALTH_SCRIPT` and `XHS_ENABLE_FORCE_DOM_ACTIONS` cannot restore them. This does not imply platform approval of browser-assisted form filling.
+
+These are source changes. The `v2.0.0-rc.2` downloads and historical acceptance results below predate them; those packages do not include this policy. See the [phone / API guide](docs/codex-mobile.en.md) for review fields.
+
 ## v2.0.0-rc.2 redesign pre-release · 2026-10-15
 
 This pre-release brings together Chinese editing, 13 curated templates, multi-page image layouts and publication fixes. It is intended for validation; the full real-account publication flow and platform packages still need acceptance testing.
@@ -121,11 +132,11 @@ The seven-image Office Town example covers phone replies, task overview, butler 
 </td>
 <td width="50%">
 
-### 🚀 Automated Publishing
+### Publication Form Assistance
 - 📱 **One-Click Login**: Quick login with phone number, country-code selection, and manual browser completion when risk control is triggered
 - 🧩 **Import Login State**: Import Xiaohongshu login state from your system Chrome (useful for SMS/QR risk-control flows)
 - 📋 **Content Preview**: Complete preview before publishing
-- ⏰ **Scheduled Publishing**: Manage tasks and run them at the scheduled time while the app is running and the account is signed in. Unattended use is currently not recommended; see [usage limits and known issues](#usage-limits-and-known-issues).
+- ⏰ **Reminders & Hotspot Drafts**: Notify once or generate a local draft at the scheduled time; review it and publish manually on Xiaohongshu.
 - 💾 **State Saving**: Auto-save login status
 
 </td>
@@ -155,7 +166,7 @@ The seven-image Office Town example covers phone replies, task overview, butler 
 
 Use [Office Town (agentBridge)](https://github.com/otterview-labs/agentBridge/blob/main/README.en.md) to continue your Mac's Codex session from your phone. Ask it to write, revise and save drafts. Both Codex and this tool run on the Mac; your phone does not need direct access to the Xiaohongshu service.
 
-For now, review text on your phone and view images separately, then check the account and confirm publication on Xiaohongshu. Authorizing automatic publication from your phone carries the [known risks below](#usage-limits-and-known-issues). A successful API result does not mean a post passed moderation.
+Review text on your phone and images separately, then check the account and publish manually on Xiaohongshu. Automatic submission is disabled; API success only starts form filling.
 
 Ordinary butler chat currently queries tasks; Codex performs the operations. The complete phone-to-publication workflow has not passed physical-device verification, and phone chat has no dedicated draft or image preview screen.
 
@@ -215,7 +226,7 @@ These fixes do not establish content truthfulness or platform approval. Check pe
 │   │   ├── 📂 services/             # 🔧 Business Service Layer
 │   │   ├── 📂 pages/                # 🎨 UI Pages
 │   │   ├── 📂 processor/            # 🧩 Content/Image processing
-│   │   ├── 📂 scheduler/            # ⏰ Scheduling (publish at scheduled time)
+│   │   ├── 📂 scheduler/            # ⏰ One-time reminders and hotspot drafts
 │   │   └── 📂 ai_integration/       # 🤖 AI adapters (experimental)
 │   ├── 📂 web/                      # 🌐 Web Interface
 │   │   ├── 📂 templates/            # 📄 HTML Templates
@@ -271,8 +282,8 @@ python scripts/xhs_login_cli.py --phone 13800138000 --country-code +86
 - If SMS/QR/captcha risk control is triggered, complete it manually in the browser
 - Saved runtime data defaults to `~/.xhs_system/` or `XHS_DATA_DIR` if provided
 - If local `storage_state/cookies` are no longer valid, the login flow now auto-scans your system Chrome profiles, imports a usable Xiaohongshu session, and can be disabled with `XHS_AUTO_IMPORT_SYSTEM_CHROME_STATE=false`
-- When using a real persistent Chrome profile, extra stealth fingerprint overrides are now disabled by default; set `XHS_ENABLE_STEALTH_SCRIPT=true` only if you explicitly need them
-- Auto-publish now disables JS force-click / force input-change fallbacks by default; they are only enabled in manual-confirm mode or when `XHS_ENABLE_FORCE_DOM_ACTIONS=true` is set
+- Extra stealth property overrides have been removed; the legacy flag has no effect.
+- Form filling no longer uses forced clicks or synthetic DOM-event fallbacks. Handle unavailable controls manually in the browser.
 - If your system Chrome is already running, auto-import now skips opening an extra temporary Chrome window by default; use manual import when you explicitly want that flow
 
 **Docker deployment**
@@ -441,7 +452,7 @@ flowchart LR
 10. **👀 Preview & Publish**
    - Click "Preview Publish" to check content
    - Confirm content and click publish
-   - Support scheduled publishing
+   - Or create a one-time reminder / hotspot draft task; it never submits a post.
 
 ---
 
@@ -518,7 +529,7 @@ XHS_IMG_BOXED_LIST_CARDS=false
 - [x] ✅ **User Management**: Multi-user switching & local isolation
 - [x] ✅ **Template Library**: Prompt templates + system image template import + cover templates
 - [x] ✅ **Hotspot Center**: Multi-platform hot lists + one-click to homepage topic
-- [x] ✅ **Scheduled Publishing**: Manage and run scheduled tasks while the app stays running. Failures require verification; hotspot tasks no longer automatically repeat.
+- ⏰ **Reminders & Hotspot Drafts**: Notify once or generate a local draft at the scheduled time; review it and publish manually on Xiaohongshu.
 - [ ] 🔄 **Performance Analytics**: Stats/analysis panel is still evolving
 - [ ] 🔄 **API Interface**: Open API endpoints
 

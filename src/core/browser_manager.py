@@ -50,7 +50,6 @@ class BrowserManager:
             self.page = await self.context.new_page()
             
             # 注入反检测脚本
-            await self._inject_stealth_script()
             
             self._initialized = True
             logger.info("浏览器初始化成功")
@@ -107,48 +106,6 @@ class BrowserManager:
             return chromium_path
         
         raise FileNotFoundError(f"浏览器文件不存在: {chromium_path}")
-    
-    async def _inject_stealth_script(self) -> None:
-        """注入反检测脚本"""
-        stealth_js = """
-        (function(){
-            // 反检测脚本
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            });
-            
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5]
-            });
-            
-            Object.defineProperty(navigator, 'languages', {
-                get: () => ['zh-CN', 'zh']
-            });
-            
-            window.chrome = { runtime: {} };
-            
-            // 移除webdriver属性
-            delete navigator.__proto__.webdriver;
-            
-            // 注意：不要禁用 Service Worker。
-            // 小红书创作平台的上传/编辑流程可能依赖 SW/缓存/路由模块；
-            // 禁用后可能出现“选完图片但不出预览/不进入编辑页”的卡死。
-            // 如果出现与 serviceWorker 相关的噪声报错，只做忽略，不拦截其注册。
-            window.addEventListener('error', function(e) {
-                if (e.message && e.message.includes('serviceWorker')) {
-                    e.preventDefault();
-                    return false;
-                }
-            });
-            window.addEventListener('unhandledrejection', function(e) {
-                if (e.reason && e.reason.message && e.reason.message.includes('serviceWorker')) {
-                    e.preventDefault();
-                    return false;
-                }
-            });
-        })();
-        """
-        await self.page.add_init_script(stealth_js)
     
     async def close(self) -> None:
         """关闭浏览器资源"""

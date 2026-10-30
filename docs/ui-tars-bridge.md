@@ -1,4 +1,6 @@
-# UI-TARS Sidecar Bridge
+# UI-TARS Sidecar Bridge (historical design)
+
+The sidecar is not shipped in the current repository. The supported desktop and Web/API paths only fill forms and reject automatic submission. Do not use this historical design to automate final publication.
 
 This sidecar service runs a local UI-TARS agent and exposes a simple HTTP API for GUI automation. It is intended to be called by the Python app (or any client) to perform browser-based publishing with safety confirmations.
 
@@ -64,7 +66,7 @@ Request body (example):
     "finished()",
     "call_user()"
   ],
-  "system_prompt": "Only publish after explicit user confirmation.",
+  "system_prompt": "Never click final Publish or Submit. Stop after preparing a draft for the user.",
   "max_loop": 20,
   "require_confirm": ["publish", "submit", "login"],
   "runtime_intercept": false,

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-定时发布弹窗
+提醒与热点草稿弹窗
 
-- 选择发布账号（用户）
-- 选择发布时间
-- 支持“固定内容一次发布 / 跟随热点定期更新”
+- 关联账号（可选）
+- 选择提醒或生成时间
+- 内容到点提醒；热点生成一次本地草稿
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class ScheduledPublishDialog(QDialog):
         default_task_type: str = "fixed",
     ):
         super().__init__(parent)
-        self.setWindowTitle("⏰ 定时发布")
+        self.setWindowTitle("⏰ 提醒与草稿")
         self.setModal(True)
         self.setFixedSize(660, 720)
 
@@ -74,7 +74,7 @@ class ScheduledPublishDialog(QDialog):
         self.hotspot_source_combo = QComboBox()
         self.hotspot_rank_spin = QSpinBox()
         self.interval_hours_spin = QSpinBox()
-        self.hotspot_context_check = QCheckBox("抓取热点摘要（百度）增强文案")
+        self.hotspot_context_check = QCheckBox("保存搜索摘要供核对（不是事实核验）")
 
         self._setup_ui()
         self._load_users()
@@ -84,12 +84,12 @@ class ScheduledPublishDialog(QDialog):
         layout.setContentsMargins(18, 18, 18, 18)
         layout.setSpacing(12)
 
-        title = QLabel("⏰ 创建定时发布任务")
+        title = QLabel("⏰ 创建提醒或热点草稿")
         title.setFont(QFont(get_ui_font_family(), 16, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        hint = QLabel("提示：仅支持已登录账号；软件需保持开启，到点自动发布。")
+        hint = QLabel("软件需保持运行。内容任务到点提醒；热点任务仅生成一次本地草稿，之后由你核对。")
         hint.setStyleSheet("color: #6b7280;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
@@ -100,8 +100,8 @@ class ScheduledPublishDialog(QDialog):
         mode_label = QLabel("任务类型：")
         mode_label.setFixedWidth(90)
         mode_row.addWidget(mode_label)
-        self.mode_combo.addItem("一次发布（使用当前内容）", "fixed")
-        self.mode_combo.addItem("跟随热点（定期更新生成）", "hotspot")
+        self.mode_combo.addItem("内容提醒（保存当前内容）", "fixed")
+        self.mode_combo.addItem("热点草稿（到点生成一次）", "hotspot")
         self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         mode_row.addWidget(self.mode_combo, 1)
         layout.addLayout(mode_row)
@@ -109,7 +109,7 @@ class ScheduledPublishDialog(QDialog):
         # 用户选择
         user_row = QHBoxLayout()
         user_row.setSpacing(10)
-        user_label = QLabel("发布账号：")
+        user_label = QLabel("关联账号：")
         user_label.setFixedWidth(90)
         user_row.addWidget(user_label)
         user_row.addWidget(self.user_combo, 1)
@@ -118,7 +118,7 @@ class ScheduledPublishDialog(QDialog):
         # 时间选择
         time_row = QHBoxLayout()
         time_row.setSpacing(10)
-        time_label = QLabel("发布时间：")
+        time_label = QLabel("提醒 / 生成：")
         time_label.setFixedWidth(90)
         time_row.addWidget(time_label)
 
@@ -178,7 +178,7 @@ class ScheduledPublishDialog(QDialog):
         self.images_list.setMinimumHeight(120)
         fixed_layout.addWidget(self.images_list)
 
-        img_hint = QLabel("提示：不选图片也可创建任务，发布时会自动生成模板图/占位图。")
+        img_hint = QLabel("图片随内容保存。到点只提醒，不生成占位图，也不发布。")
         img_hint.setStyleSheet("color: #6b7280;")
         img_hint.setWordWrap(True)
         fixed_layout.addWidget(img_hint)
@@ -212,16 +212,9 @@ class ScheduledPublishDialog(QDialog):
         rank_row.addWidget(self.hotspot_rank_spin, 1)
         hs_layout.addLayout(rank_row)
 
-        interval_row = QHBoxLayout()
-        interval_row.setSpacing(10)
-        interval_label = QLabel("更新频率：")
-        interval_label.setFixedWidth(90)
-        interval_row.addWidget(interval_label)
-        self.interval_hours_spin.setRange(1, 72)
-        self.interval_hours_spin.setSuffix(" 小时")
-        self.interval_hours_spin.setValue(self._default_interval_hours)
-        interval_row.addWidget(self.interval_hours_spin, 1)
-        hs_layout.addLayout(interval_row)
+        cost_note = QLabel("热点生成会使用已配置的模型及额度。结果待核实，不会发布，也不会循环生成。")
+        cost_note.setWordWrap(True)
+        hs_layout.addWidget(cost_note)
 
         self.hotspot_context_check.setChecked(True)
         hs_layout.addWidget(self.hotspot_context_check)
@@ -305,6 +298,7 @@ class ScheduledPublishDialog(QDialog):
 
     def _load_users(self):
         self.user_combo.clear()
+        self.user_combo.addItem("暂不关联账号", None)
 
         selected_index = 0
         for idx, u in enumerate(self._users):
@@ -328,7 +322,7 @@ class ScheduledPublishDialog(QDialog):
 
             self.user_combo.addItem(label, user_id)
             if self._default_user_id and user_id == int(self._default_user_id):
-                selected_index = idx
+                selected_index = self.user_combo.count() - 1
 
         if self.user_combo.count() > 0:
             self.user_combo.setCurrentIndex(selected_index)
@@ -371,10 +365,7 @@ class ScheduledPublishDialog(QDialog):
             return 1
 
     def get_interval_hours(self) -> int:
-        try:
-            return int(self.interval_hours_spin.value())
-        except Exception:
-            return self._default_interval_hours
+        return 0
 
     def get_use_hotspot_context(self) -> bool:
         try:

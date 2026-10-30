@@ -45,7 +45,7 @@ Return the draft ID, title, full text, tags and image paths for review on my pho
 After editing, save a new draft and identify which draft it replaces. Wait for my review.
 
 Generation, editing and follow-up requests only create drafts by default.
-Call POST /api/publish with auto_publish=true only after I explicitly identify a draft ID and ask you to publish it.
+Never request automatic submission. POST /api/publish only fills the browser form after review; the user clicks Publish on Xiaohongshu.
 If publication times out or the result is uncertain, check status and the browser before retrying.
 An accepted publication request is not a completed post. Query the content and report its actual status.
 Never include passwords, cookies, verification codes or model keys in the conversation.
@@ -84,7 +84,7 @@ The existing conversation can return text and paths. A local Mac image path is n
 
 ## Check the result
 
-`POST /api/publish` with `auto_publish=false` fills the browser form and leaves confirmation to the computer browser. It does not provide phone-side publication approval. Explicitly authorized automatic publication uses `auto_publish=true`.
+`POST /api/publish` with `auto_publish=false` fills the browser form and leaves confirmation to the computer browser. It does not provide phone-side publication approval. `auto_publish=true` is rejected with HTTP 400, even for explicitly authorized callers. Include `review_confirmed=true` after checking facts and asset rights, set `ai_usage` to `none` or `assisted`, and include `ai_disclosure_confirmed=true` for assisted content after confirming that the user will disclose AI use on the platform. These fields do not verify facts or set the platform disclosure automatically.
 
 After the request is accepted, query the content status. The implementation records `queued`, `publishing`, `submitted`, `under_review`, `needs_review`, `unknown` or `failed`. `submitted` means the tool saw a submission notice; `under_review` is still awaiting moderation. Neither establishes moderation approval. Repeated requests return 409. Check the platform record rather than creating another draft ID to resend identical content.
 

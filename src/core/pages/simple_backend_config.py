@@ -177,7 +177,7 @@ class SimpleBackendConfigPage(QWidget):
         title.setStyleSheet("color: white;")
         title.setAlignment(Qt.AlignCenter)
         
-        subtitle = QLabel("管理您的定时发布、AI模型和API配置")
+        subtitle = QLabel("管理提醒、草稿、AI 模型和 API 配置")
         subtitle.setFont(QFont(get_ui_font_family(), 16))
         subtitle.setStyleSheet("color: rgba(255, 255, 255, 0.9);")
         subtitle.setAlignment(Qt.AlignCenter)
@@ -190,8 +190,8 @@ class SimpleBackendConfigPage(QWidget):
         # 创建标签页
         tab_widget = QTabWidget()
         
-        # 定时发布配置
-        tab_widget.addTab(self.create_schedule_tab(), "定时发布")
+        # 提醒与草稿配置
+        tab_widget.addTab(self.create_schedule_tab(), "提醒与草稿")
         tab_widget.addTab(self.create_model_tab(), "模型配置")
         tab_widget.addTab(self.create_template_tab(), "模板库")
         tab_widget.addTab(self.create_api_tab(), "API管理")
@@ -200,7 +200,7 @@ class SimpleBackendConfigPage(QWidget):
         layout.addWidget(tab_widget)
     
     def create_schedule_tab(self):
-        """创建定时发布标签页"""
+        """创建提醒与草稿标签页"""
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         
@@ -210,19 +210,19 @@ class SimpleBackendConfigPage(QWidget):
         layout.setSpacing(25)
         
         # 标题
-        title = QLabel("⏰ 定时发布配置")
+        title = QLabel("⏰ 提醒与草稿配置")
         title.setFont(QFont(get_ui_font_family(), 20, QFont.Bold))
         title.setStyleSheet("color: #2c3e50; margin-bottom: 20px;")
         layout.addWidget(title)
         
         # 启用开关
-        self.schedule_enabled = QCheckBox("✅ 启用定时发布功能")
+        self.schedule_enabled = QCheckBox("启用提醒与草稿任务（软件需保持运行）")
         self.schedule_enabled.setFont(QFont(get_ui_font_family(), 16))
         self.schedule_enabled.stateChanged.connect(self.on_schedule_enabled_changed)
         layout.addWidget(self.schedule_enabled)
         
         # 创建分组
-        group = QGroupBox("发布设置")
+        group = QGroupBox("任务设置")
         group_layout = QFormLayout(group)
         group_layout.setSpacing(15)
         group_layout.setContentsMargins(20, 20, 20, 20)
@@ -242,9 +242,12 @@ class SimpleBackendConfigPage(QWidget):
         self.max_posts.setSuffix(" 条")
         self.max_posts.setFont(QFont(get_ui_font_family(), 14))
         
-        group_layout.addRow("🕐 发布时间：", self.schedule_time)
-        group_layout.addRow("📅 发布间隔：", self.interval_hours)
-        group_layout.addRow("📊 每日限制：", self.max_posts)
+        self.interval_hours.hide()
+        self.max_posts.hide()
+        note = QLabel("每个任务只执行一次：保存内容的任务到点提醒，热点任务生成本地草稿。不会登录账号或自动发布。")
+        note.setWordWrap(True)
+        group_layout.addRow(note)
+        self.schedule_time.hide()
         
         layout.addWidget(group)
 
@@ -269,7 +272,7 @@ class SimpleBackendConfigPage(QWidget):
         delete_btn.clicked.connect(self.delete_selected_schedule_task)
         action_row.addWidget(delete_btn)
 
-        clear_btn = QPushButton("🧹 清理已完成")
+        clear_btn = QPushButton("清理旧完成项 / 已提醒")
         clear_btn.clicked.connect(self.clear_completed_schedule_tasks)
         action_row.addWidget(clear_btn)
 
@@ -279,6 +282,16 @@ class SimpleBackendConfigPage(QWidget):
 
         action_row.addStretch()
         tasks_layout.addLayout(action_row)
+        content_row = QHBoxLayout()
+        for text, callback in (("打开内容", self.open_selected_schedule_draft), ("查看来源与核对提示", self.show_schedule_sources)):
+            button = QPushButton(text)
+            button.clicked.connect(callback)
+            content_row.addWidget(button)
+        content_row.addStretch()
+        tasks_layout.addLayout(content_row)
+        retention_note = QLabel("清理会删除旧完成项和已提醒的内容；热点草稿会保留，需选中后主动删除。")
+        retention_note.setWordWrap(True)
+        tasks_layout.addWidget(retention_note)
 
         self.schedule_tasks_list = QListWidget()
         self.schedule_tasks_list.setMinimumHeight(240)
@@ -291,23 +304,19 @@ class SimpleBackendConfigPage(QWidget):
         return scroll
 
     def create_schedule_task(self):
-        """创建一个新的定时发布任务（手动输入内容/选择热点）。"""
+        """创建一个新的提醒与草稿任务（手动输入内容/选择热点）。"""
         try:
-            # 只允许选择“已登录”的用户（无人值守避免验证码）
+            # 关联账号仅用于记录归属，不要求登录，也不会自动登录
             try:
                 from src.core.services.user_service import user_service
 
                 current_user = user_service.get_current_user()
-                users = [u for u in user_service.list_users(active_only=True) if getattr(u, "is_logged_in", False)]
+                users = user_service.list_users(active_only=True)
             except Exception:
                 users = []
                 current_user = None
 
-            if not users:
-                QMessageBox.information(self, "提示", "没有已登录用户，请先登录后再创建定时任务。")
-                return
-
-            default_user_id = getattr(current_user, "id", None) if current_user else getattr(users[0], "id", None)
+            default_user_id = getattr(current_user, "id", None)
 
             default_interval_hours = 2
             try:
@@ -332,11 +341,8 @@ class SimpleBackendConfigPage(QWidget):
 
             user_id = dialog.get_user_id()
             schedule_time = dialog.get_schedule_time()
-            if not user_id:
-                QMessageBox.warning(self, "失败", "请选择发布账号。")
-                return
             if not hasattr(schedule_time, "isoformat"):
-                QMessageBox.warning(self, "失败", "发布时间无效。")
+                QMessageBox.warning(self, "失败", "提醒或生成时间无效。")
                 return
 
             from src.core.scheduler.schedule_manager import schedule_manager
@@ -359,7 +365,7 @@ class SimpleBackendConfigPage(QWidget):
                     schedule_time=schedule_time,
                     title=f"热点({source}) #{rank}",
                     images=[],
-                    user_id=int(user_id),
+                    user_id=user_id,
                     task_type="hotspot",
                     interval_hours=int(interval_hours),
                     hotspot_source=str(source),
@@ -388,13 +394,13 @@ class SimpleBackendConfigPage(QWidget):
                     schedule_time=schedule_time,
                     title=title,
                     images=images,
-                    user_id=int(user_id),
+                    user_id=user_id,
                     task_type="fixed",
                     cover_template_id=cover_template_id,
                     page_count=3,
                 )
 
-            QMessageBox.information(self, "成功", f"已创建定时任务：{task_id}")
+            QMessageBox.information(self, "成功", f"已创建提醒 / 草稿任务：{task_id}")
             try:
                 self.refresh_schedule_tasks()
             except Exception:
@@ -409,6 +415,10 @@ class SimpleBackendConfigPage(QWidget):
 
             enabled = bool(state)
             if enabled:
+                # Explicitly re-enabling allows new tasks after configuration review.
+                worker = getattr(self.window(), "browser_thread", None)
+                if worker is not None:
+                    worker.action_queue.append({"type": "resume_draft_tasks"})
                 schedule_manager.start_scheduler()
             else:
                 schedule_manager.stop_scheduler()
@@ -440,6 +450,8 @@ class SimpleBackendConfigPage(QWidget):
             status_icon = {
                 "pending": "🕒",
                 "running": "⏳",
+                "reminded": "🔔",
+                "draft_ready": "📝",
                 "completed": "✅",
                 "failed": "❌",
                 "needs_review": "⚠️",
@@ -457,11 +469,11 @@ class SimpleBackendConfigPage(QWidget):
                         login_tag = "✅" if getattr(user_obj, "is_logged_in", False) else "❌"
                         user_label = f"{name} {login_tag}"
                     else:
-                        user_label = "当前用户" if uid is None else f"用户{uid}"
+                        user_label = "未关联账号" if uid is None else f"用户{uid}"
 
                     st = getattr(t, "status", "pending")
                     icon = status_icon.get(st, "•")
-                    label = {"needs_review": "待核验", "submitted": "已提交", "under_review": "审核中"}.get(st, st)
+                    label = {"pending": "等待到点", "running": "正在生成草稿", "reminded": "已提醒", "draft_ready": "草稿待核对", "completed": "旧完成项", "failed": "失败", "needs_review": "待核验", "submitted": "历史已提交", "under_review": "历史审核中"}.get(st, st)
                     title = (getattr(t, "title", "") or "").strip() or "（无标题）"
                     try:
                         ts = getattr(t, "schedule_time").strftime("%Y-%m-%d %H:%M")
@@ -469,7 +481,7 @@ class SimpleBackendConfigPage(QWidget):
                         ts = str(getattr(t, "schedule_time", ""))
 
                     retry = f"{getattr(t, 'retry_count', 0)}/{getattr(t, 'max_retries', 0)}"
-                    text = f"{icon} {ts} ｜ {user_label} ｜ {title} ｜ {label} ｜ 失败次数 {retry}"
+                    text = f"{icon} {ts} ｜ {user_label} ｜ {title} ｜ {label}"
 
                     item = QListWidgetItem(text)
                     item.setData(Qt.UserRole, str(getattr(t, "task_id", "")))
@@ -482,7 +494,7 @@ class SimpleBackendConfigPage(QWidget):
                     ]
                     err = (getattr(t, "error_message", "") or "").strip()
                     if err:
-                        tooltip_lines.append(f"错误: {err}")
+                        tooltip_lines.append(f"说明: {err}")
                     item.setToolTip("\n".join(tooltip_lines))
 
                     self.schedule_tasks_list.addItem(item)
@@ -493,6 +505,38 @@ class SimpleBackendConfigPage(QWidget):
                 self.schedule_tasks_list.addItem(QListWidgetItem("（暂无任务）"))
         except Exception:
             pass
+
+    def selected_schedule_task(self):
+        from src.core.scheduler.schedule_manager import schedule_manager
+        item = self.schedule_tasks_list.currentItem()
+        task_id = item.data(Qt.UserRole) if item else None
+        return next((task for task in schedule_manager.get_tasks() if task.task_id == task_id), None)
+
+    def open_selected_schedule_draft(self):
+        task = self.selected_schedule_task()
+        if task is None:
+            QMessageBox.information(self, "选择内容", "请先选择一条提醒或草稿。")
+            return
+        if task.task_type == "hotspot" and task.status != "draft_ready":
+            QMessageBox.information(self, "草稿尚未就绪", task.error_message or "到点生成后，可以在这里打开草稿。")
+            return
+        window = self.window()
+        if window.home_page.load_local_draft(task):
+            window.switch_page(0)
+
+    def show_schedule_sources(self):
+        import json
+        from src.core.services.publication_policy import PUBLICATION_REVIEW_NOTICE
+        task = self.selected_schedule_task()
+        if task is None:
+            QMessageBox.information(self, "选择内容", "请先选择任务。")
+            return
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("来源与核对提示")
+        dialog.setText(PUBLICATION_REVIEW_NOTICE)
+        dialog.setInformativeText("热榜及搜索摘要仅作参考，不代表事实已经核验。请展开详细信息检查原始来源。")
+        dialog.setDetailedText(json.dumps(task.source_metadata, ensure_ascii=False, indent=2) if task.source_metadata else "此任务未记录来源。请自行核对。")
+        dialog.exec()
 
     def delete_selected_schedule_task(self):
         try:
@@ -1193,7 +1237,7 @@ class SimpleBackendConfigPage(QWidget):
             self._api_key_placeholder_active = False
             self._api_key_name = ""
 
-            # 定时发布配置
+            # 提醒与草稿配置
             schedule_config = self.config.get_schedule_config()
             self.schedule_enabled.setChecked(schedule_config.get('enabled', False))
             self.interval_hours.setValue(schedule_config.get('interval_hours', 2))
@@ -1306,7 +1350,7 @@ class SimpleBackendConfigPage(QWidget):
         try:
             print("开始保存配置...")
             
-            # 保存定时发布配置
+            # 保存提醒与草稿配置
             schedule_config = {
                 'enabled': self.schedule_enabled.isChecked(),
                 'schedule_time': self.schedule_time.dateTime().toString("yyyy-MM-dd HH:mm"),

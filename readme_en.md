@@ -2,6 +2,8 @@
 
 <div align="center">
 
+Review build preparation (2026-11-03): **v2.0.0-rc.3** contains the reminder and draft-only workflow. See the [candidate notes](docs/releases/v2.0.0-rc.3.md). It is awaiting review; public downloads still point to rc.2.
+
 <img src="https://img.shields.io/badge/🐍_Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python Version"/>
 <img src="https://img.shields.io/badge/📄_License-Apache_2.0-4CAF50?style=for-the-badge&logo=apache&logoColor=white" alt="License"/>
 <img src="https://img.shields.io/badge/💻_Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Platform"/>
